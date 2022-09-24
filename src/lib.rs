@@ -115,6 +115,10 @@ impl Sysroot {
         rustc_version: &VersionMeta,
         cargo_cmd: impl Fn() -> Command,
     ) -> Result<()> {
+        if !src_dir.join("std").join("Cargo.toml").exists() {
+            bail!("{src_dir:?} does not seem to be a rust library source folder: `src/Cargo.toml` not found");
+        }
+
         // Check if we even need to do anything.
         let cur_hash = self.sysroot_compute_hash(src_dir, rustc_version);
         if self.sysroot_read_hash() == Some(cur_hash) {
@@ -134,7 +138,7 @@ impl Sysroot {
                 .join("Cargo.lock"),
             &lock_file,
         )
-        .context("failed to copy lockfile")?;
+        .context("failed to copy lockfile from sysroot source")?;
         let manifest = format!(
             r#"
 [package]
