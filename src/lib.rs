@@ -1,3 +1,5 @@
+//! Offers an easy way to build a rustc sysroot from source.
+
 use std::collections::hash_map::DefaultHasher;
 use std::fs::{self, File};
 use std::hash::{Hash, Hasher};
@@ -6,24 +8,67 @@ use std::ops::Not;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use rustc_version::VersionMeta;
 use tempdir::TempDir;
 
+/// Returns where the given rustc stores its sysroot source code.
+pub fn rustc_sysroot_src(mut rustc: Command) -> Result<PathBuf> {
+    let output = rustc
+        .args(["--print", "sysroot"])
+        .output()
+        .context("failed to determine sysroot")?;
+    if !output.status.success() {
+        bail!(
+            "failed to determine sysroot; rustc said:\n{}",
+            String::from_utf8_lossy(&output.stderr).trim_end()
+        );
+    }
+
+    let sysroot =
+        std::str::from_utf8(&output.stdout).context("sysroot folder is not valid UTF-8")?;
+    let sysroot = Path::new(sysroot.trim_end_matches('\n'));
+    Ok(sysroot
+        .join("lib")
+        .join("rustlib")
+        .join("src")
+        .join("rust")
+        .join("library"))
+}
+
+/// The build mode to use for this sysroot.
+#[derive(Copy, Clone, Debug)]
 pub enum BuildMode {
+    /// Do a full sysroot build. Suited for all purposes (like the regular sysroot), but only works
+    /// for the host or for targets that have suitable development tools installed.
     Build,
+    /// Do a check-only sysroot build. This is only suited for check-only builds of crates, but on
+    /// the plus side it works for *arbitrary* targets without having any special tools installed.
     Check,
 }
 
+impl BuildMode {
+    pub fn as_str(&self) -> &str {
+        use BuildMode::*;
+        match self {
+            Build => "build",
+            Check => "check",
+        }
+    }
+}
+
+/// Information about a to-be-created sysroot.
 pub struct Sysroot {
     sysroot_dir: PathBuf,
     target: String,
 }
 
 /// Hash file name (in target/lib directory).
-const HASH_FILE_NAME: &str = ".cargo-careful-hash";
+const HASH_FILE_NAME: &str = ".rustc-build-sysroot-hash";
 
 impl Sysroot {
+    /// Prepare to create a new sysroot in the given folder (that folder should later be passed to
+    /// rustc via `--sysroot`), for the given target.
     pub fn new(sysroot_dir: &Path, target: &str) -> Self {
         Sysroot {
             sysroot_dir: sysroot_dir.to_owned(),
@@ -60,6 +105,9 @@ impl Sysroot {
         hash.parse().ok()
     }
 
+    /// Build the `self` sysroot from the given sources.
+    ///
+    /// `src_dir` must be the `library` source folder, i.e., the one that contains `std/Cargo.toml`.
     pub fn build_from_source(
         &self,
         src_dir: &Path,
@@ -75,7 +123,7 @@ impl Sysroot {
         }
 
         // Prepare a workspace for cargo
-        let build_dir = TempDir::new("cargo-careful").context("failed to create tempdir")?;
+        let build_dir = TempDir::new("rustc-build-sysroot").context("failed to create tempdir")?;
         let lock_file = build_dir.path().join("Cargo.lock");
         let manifest_file = build_dir.path().join("Cargo.toml");
         let lib_file = build_dir.path().join("lib.rs");
@@ -124,10 +172,7 @@ path = {src_dir_workspace_std:?}
 
         // Run cargo.
         let mut cmd = cargo_cmd();
-        cmd.arg(match mode {
-            BuildMode::Build => "build",
-            BuildMode::Check => "check",
-        });
+        cmd.arg(mode.as_str());
         cmd.arg("--release");
         cmd.arg("--manifest-path");
         cmd.arg(&manifest_file);
@@ -138,7 +183,7 @@ path = {src_dir_workspace_std:?}
         // To avoid metadata conflicts, we need to inject some custom data into the crate hash.
         // bootstrap does the same at
         // <https://github.com/rust-lang/rust/blob/c8e12cc8bf0de646234524924f39c85d9f3c7c37/src/bootstrap/builder.rs#L1613>.
-        cmd.env("__CARGO_DEFAULT_LIB_METADATA", "cargo-careful");
+        cmd.env("__CARGO_DEFAULT_LIB_METADATA", "rustc-build-sysroot");
 
         if cmd
             .status()
@@ -150,7 +195,7 @@ path = {src_dir_workspace_std:?}
         }
 
         // Copy the output to a staging dir (so that we can do the final installation atomically.)
-        let staging_dir = TempDir::new_in(&self.sysroot_dir, "cargo-careful")
+        let staging_dir = TempDir::new_in(&self.sysroot_dir, "rustc-build-sysroot")
             .context("failed to create staging dir")?;
         let out_dir = build_dir
             .path()
