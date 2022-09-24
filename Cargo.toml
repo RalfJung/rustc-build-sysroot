@@ -1,0 +1,13 @@
+[package]
+name = "rustc-build-sysroot"
+authors = ["Ralf Jung"]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/RalfJung/rustc-build-sysroot"
+description = "Build a rustc sysroot with custom flags"
+
+[dependencies]
+tempdir = "0.3"
+rustc_version = "0.4"
+anyhow = "1.0"
