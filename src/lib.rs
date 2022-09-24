@@ -112,6 +112,7 @@ impl Sysroot {
         &self,
         src_dir: &Path,
         mode: BuildMode,
+        std_features: &[&str],
         rustc_version: &VersionMeta,
         cargo_cmd: impl Fn() -> Command,
     ) -> Result<()> {
@@ -145,15 +146,16 @@ impl Sysroot {
         let manifest = format!(
             r#"
 [package]
-authors = ["The Rust Project Developers"]
+authors = ["rustc-build-sysroot"]
 name = "sysroot"
 version = "0.0.0"
 
 [lib]
+# empty dummy, just so that things are being built
 path = "lib.rs"
 
 [dependencies.std]
-features = ["panic_unwind", "backtrace"]
+features = {std_features:?}
 path = {src_dir_std:?}
 [dependencies.test]
 path = {src_dir_test:?}
@@ -165,6 +167,7 @@ path = {src_dir_workspace_alloc:?}
 [patch.crates-io.rustc-std-workspace-std]
 path = {src_dir_workspace_std:?}
     "#,
+            std_features = std_features,
             src_dir_std = src_dir.join("std"),
             src_dir_test = src_dir.join("test"),
             src_dir_workspace_core = src_dir.join("rustc-std-workspace-core"),

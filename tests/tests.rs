@@ -19,7 +19,7 @@ fn test_sysroot_build(target: &str, mode: BuildMode, src_dir: &Path, rustc_versi
     let sysroot_dir = TempDir::new("rustc-build-sysroot-test-sysroot").unwrap();
     let sysroot = Sysroot::new(sysroot_dir.path(), target);
     sysroot
-        .build_from_source(src_dir, mode, rustc_version, || {
+        .build_from_source(src_dir, mode, &[], rustc_version, || {
             let mut cmd = Command::new("cargo");
             cmd.stdout(process::Stdio::null());
             cmd.stderr(process::Stdio::null());
