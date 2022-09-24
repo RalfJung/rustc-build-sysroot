@@ -7,7 +7,12 @@ use tempdir::TempDir;
 use rustc_build_sysroot::*;
 
 fn run(cmd: &mut Command) {
-    assert!(cmd.stdout(process::Stdio::null()).stderr(process::Stdio::null()).status().expect("failed to run {cmd:?}").success());
+    assert!(cmd
+        .stdout(process::Stdio::null())
+        .stderr(process::Stdio::null())
+        .status()
+        .expect("failed to run {cmd:?}")
+        .success());
 }
 
 fn test_sysroot_build(target: &str, mode: BuildMode, src_dir: &Path, rustc_version: &VersionMeta) {

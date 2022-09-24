@@ -2,7 +2,7 @@
 name = "rustc-build-sysroot"
 authors = ["Ralf Jung"]
 version = "0.1.0"
-edition = "2021"
+edition = "2018"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/RalfJung/rustc-build-sysroot"
 description = "Build a rustc sysroot with custom flags"
