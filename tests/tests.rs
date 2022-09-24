@@ -44,12 +44,12 @@ fn test_sysroot_build(target: &str, mode: BuildMode, src_dir: &Path, rustc_versi
         ));
     if mode == BuildMode::Build && target == &rustc_version.host {
         run(Command::new("cargo")
-        .arg("run")
-        .current_dir(&crate_dir)
-        .env(
-            "RUSTFLAGS",
-            format!("--sysroot {}", sysroot_dir.path().display()),
-        ));
+            .arg("run")
+            .current_dir(&crate_dir)
+            .env(
+                "RUSTFLAGS",
+                format!("--sysroot {}", sysroot_dir.path().display()),
+            ));
     }
 }
 

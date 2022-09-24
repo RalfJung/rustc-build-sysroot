@@ -116,7 +116,10 @@ impl Sysroot {
         cargo_cmd: impl Fn() -> Command,
     ) -> Result<()> {
         if !src_dir.join("std").join("Cargo.toml").exists() {
-            bail!("{:?} does not seem to be a rust library source folder: `src/Cargo.toml` not found", src_dir);
+            bail!(
+                "{:?} does not seem to be a rust library source folder: `src/Cargo.toml` not found",
+                src_dir
+            );
         }
 
         // Check if we even need to do anything.
