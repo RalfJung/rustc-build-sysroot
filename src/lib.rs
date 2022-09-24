@@ -205,6 +205,7 @@ path = {src_dir_workspace_std:?}
         }
 
         // Copy the output to a staging dir (so that we can do the final installation atomically.)
+        fs::create_dir_all(&self.sysroot_dir).context("failed to create sysroot dir")?; // TempDir expects the parent to already exist
         let staging_dir = TempDir::new_in(&self.sysroot_dir, "rustc-build-sysroot")
             .context("failed to create staging dir")?;
         let out_dir = build_dir
