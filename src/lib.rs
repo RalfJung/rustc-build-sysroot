@@ -201,7 +201,7 @@ path = {src_dir_workspace_std:?}
             .success()
             .not()
         {
-            anyhow::bail!("sysroot build failed");
+            bail!("sysroot build failed");
         }
 
         // Copy the output to a staging dir (so that we can do the final installation atomically.)
