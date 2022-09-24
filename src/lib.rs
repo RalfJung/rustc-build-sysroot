@@ -37,7 +37,7 @@ pub fn rustc_sysroot_src(mut rustc: Command) -> Result<PathBuf> {
 }
 
 /// The build mode to use for this sysroot.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum BuildMode {
     /// Do a full sysroot build. Suited for all purposes (like the regular sysroot), but only works
     /// for the host or for targets that have suitable development tools installed.
