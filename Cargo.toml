@@ -5,6 +5,7 @@ version = "0.2.1"
 edition = "2018"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/RalfJung/rustc-build-sysroot"
+documentation = "https://docs.rs/rustc-build-sysroot"
 description = "Build a rustc sysroot with custom flags"
 
 [dependencies]
