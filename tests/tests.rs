@@ -23,7 +23,7 @@ fn test_sysroot_build(target: &str, mode: BuildMode, src_dir: &Path, rustc_versi
             let mut cmd = Command::new("cargo");
             cmd.stdout(process::Stdio::null());
             cmd.stderr(process::Stdio::null());
-            cmd
+            (cmd, vec![])
         })
         .unwrap();
 

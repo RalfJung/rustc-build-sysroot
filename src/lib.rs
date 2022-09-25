@@ -1,6 +1,7 @@
 //! Offers an easy way to build a rustc sysroot from source.
 
 use std::collections::hash_map::DefaultHasher;
+use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
@@ -34,6 +35,18 @@ pub fn rustc_sysroot_src(mut rustc: Command) -> Result<PathBuf> {
         .join("src")
         .join("rust")
         .join("library"))
+}
+
+/// Encode a list of rustflags for use in CARGO_ENCODED_RUSTFLAGS.
+fn encode_rustflags(flags: Vec<OsString>) -> OsString {
+    let mut res = OsString::new();
+    for flag in flags {
+        if !res.is_empty() {
+            res.push(OsStr::new("\x1f"));
+        }
+        res.push(flag);
+    }
+    res
 }
 
 /// The build mode to use for this sysroot.
@@ -108,13 +121,16 @@ impl Sysroot {
     /// Build the `self` sysroot from the given sources.
     ///
     /// `src_dir` must be the `library` source folder, i.e., the one that contains `std/Cargo.toml`.
+    ///
+    /// `cargo_cmd` should return a command to invoke cargo (with whatever customization is desired)
+    /// and a list of rustflags to use.
     pub fn build_from_source(
         &self,
         src_dir: &Path,
         mode: BuildMode,
         std_features: &[&str],
         rustc_version: &VersionMeta,
-        cargo_cmd: impl Fn() -> Command,
+        cargo_cmd: impl Fn() -> (Command, Vec<OsString>),
     ) -> Result<()> {
         if !src_dir.join("std").join("Cargo.toml").exists() {
             bail!(
@@ -181,15 +197,19 @@ path = {src_dir_workspace_std:?}
         File::create(&lib_file).context("failed to create lib file")?;
 
         // Run cargo.
-        let mut cmd = cargo_cmd();
+        let (mut cmd, mut flags) = cargo_cmd();
         cmd.arg(mode.as_str());
         cmd.arg("--release");
         cmd.arg("--manifest-path");
         cmd.arg(&manifest_file);
         cmd.arg("--target");
         cmd.arg(&self.target);
+        // Set rustflags.
+        flags.push("-Zforce-unstable-if-unmarked".into());
+        cmd.env("CARGO_ENCODED_RUSTFLAGS", encode_rustflags(flags));
         // Make sure the results end up where we expect them.
-        cmd.env("CARGO_TARGET_DIR", build_dir.path().join("target"));
+        let build_target_dir = build_dir.path().join("target");
+        cmd.env("CARGO_TARGET_DIR", &build_target_dir);
         // To avoid metadata conflicts, we need to inject some custom data into the crate hash.
         // bootstrap does the same at
         // <https://github.com/rust-lang/rust/blob/c8e12cc8bf0de646234524924f39c85d9f3c7c37/src/bootstrap/builder.rs#L1613>.
@@ -208,9 +228,7 @@ path = {src_dir_workspace_std:?}
         fs::create_dir_all(&self.sysroot_dir).context("failed to create sysroot dir")?; // TempDir expects the parent to already exist
         let staging_dir = TempDir::new_in(&self.sysroot_dir, "rustc-build-sysroot")
             .context("failed to create staging dir")?;
-        let out_dir = build_dir
-            .path()
-            .join("target")
+        let out_dir = build_target_dir
             .join(&self.target)
             .join("release")
             .join("deps");
