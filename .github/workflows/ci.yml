@@ -28,7 +28,7 @@ jobs:
           override: true
           components: rust-src
       - name: Run tests
-        run: cargo test
+        run: cargo test --locked
 
   check:
     name: Checks
