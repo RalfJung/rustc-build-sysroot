@@ -19,12 +19,18 @@ fn test_sysroot_build(target: &str, mode: BuildMode, src_dir: &Path, rustc_versi
     let sysroot_dir = TempDir::new("rustc-build-sysroot-test-sysroot").unwrap();
     let sysroot = Sysroot::new(sysroot_dir.path(), target);
     sysroot
-        .build_from_source(src_dir, mode, &[], rustc_version, || {
-            let mut cmd = Command::new("cargo");
-            cmd.stdout(process::Stdio::null());
-            cmd.stderr(process::Stdio::null());
-            (cmd, vec![])
-        })
+        .build_from_source(
+            src_dir,
+            mode,
+            SysrootConfig::WithStd { std_features: &[] },
+            rustc_version,
+            || {
+                let mut cmd = Command::new("cargo");
+                cmd.stdout(process::Stdio::null());
+                cmd.stderr(process::Stdio::null());
+                (cmd, vec![])
+            },
+        )
         .unwrap();
 
     let crate_name = "rustc-build-sysroot-test-crate";
@@ -75,4 +81,27 @@ fn cross() {
     ] {
         test_sysroot_build(target, BuildMode::Check, &src_dir, &rustc_version);
     }
+}
+
+#[test]
+fn no_std() {
+    let rustc_version = VersionMeta::for_command(Command::new("rustc")).unwrap();
+    let src_dir = rustc_sysroot_src(Command::new("rustc")).unwrap();
+
+    let sysroot_dir = TempDir::new("rustc-build-sysroot-test-sysroot").unwrap();
+    let sysroot = Sysroot::new(sysroot_dir.path(), "thumbv7em-none-eabihf");
+    sysroot
+        .build_from_source(
+            &src_dir,
+            BuildMode::Check,
+            SysrootConfig::NoStd,
+            &rustc_version,
+            || {
+                let mut cmd = Command::new("cargo");
+                cmd.stdout(process::Stdio::null());
+                cmd.stderr(process::Stdio::null());
+                (cmd, vec![])
+            },
+        )
+        .unwrap();
 }

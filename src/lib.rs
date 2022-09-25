@@ -71,6 +71,18 @@ impl BuildMode {
     }
 }
 
+/// Settings controlling how the sysroot will be built.
+#[derive(Copy, Clone, Debug)]
+pub enum SysrootConfig<'a> {
+    /// Build a no-std (core-only) sysroot.
+    NoStd,
+    /// Build a full sysroot with the `std` and `test` crates.
+    WithStd {
+        /// Features to enable for the `std` crate.
+        std_features: &'a [&'a str],
+    },
+}
+
 /// Information about a to-be-created sysroot.
 pub struct Sysroot {
     sysroot_dir: PathBuf,
@@ -129,7 +141,7 @@ impl Sysroot {
         &self,
         src_dir: &Path,
         mode: BuildMode,
-        std_features: &[&str],
+        config: SysrootConfig<'_>,
         rustc_version: &VersionMeta,
         cargo_cmd: impl Fn() -> (Command, Vec<OsString>),
     ) -> Result<()> {
@@ -160,6 +172,30 @@ impl Sysroot {
             &lock_file,
         )
         .context("failed to copy lockfile from sysroot source")?;
+        let crates = match config {
+            SysrootConfig::NoStd => format!(
+                r#"
+[dependencies.core]
+path = {src_dir_core:?}
+[dependencies.compiler_builtins]
+features = ["rustc-dep-of-std", "mem"]
+version = "*"
+                "#,
+                src_dir_core = src_dir.join("core"),
+            ),
+            SysrootConfig::WithStd { std_features } => format!(
+                r#"
+[dependencies.std]
+features = {std_features:?}
+path = {src_dir_std:?}
+[dependencies.test]
+path = {src_dir_test:?}
+                "#,
+                std_features = std_features,
+                src_dir_std = src_dir.join("std"),
+                src_dir_test = src_dir.join("test"),
+            ),
+        };
         let manifest = format!(
             r#"
 [package]
@@ -171,11 +207,7 @@ version = "0.0.0"
 # empty dummy, just so that things are being built
 path = "lib.rs"
 
-[dependencies.std]
-features = {std_features:?}
-path = {src_dir_std:?}
-[dependencies.test]
-path = {src_dir_test:?}
+{crates}
 
 [patch.crates-io.rustc-std-workspace-core]
 path = {src_dir_workspace_core:?}
@@ -183,10 +215,8 @@ path = {src_dir_workspace_core:?}
 path = {src_dir_workspace_alloc:?}
 [patch.crates-io.rustc-std-workspace-std]
 path = {src_dir_workspace_std:?}
-    "#,
-            std_features = std_features,
-            src_dir_std = src_dir.join("std"),
-            src_dir_test = src_dir.join("test"),
+            "#,
+            crates = crates,
             src_dir_workspace_core = src_dir.join("rustc-std-workspace-core"),
             src_dir_workspace_alloc = src_dir.join("rustc-std-workspace-alloc"),
             src_dir_workspace_std = src_dir.join("rustc-std-workspace-std"),
@@ -195,7 +225,14 @@ path = {src_dir_workspace_std:?}
             .context("failed to create manifest file")?
             .write_all(manifest.as_bytes())
             .context("failed to write manifest file")?;
-        File::create(&lib_file).context("failed to create lib file")?;
+        let lib = match config {
+            SysrootConfig::NoStd => r#"#![no_std]"#,
+            SysrootConfig::WithStd { .. } => "",
+        };
+        File::create(&lib_file)
+            .context("failed to create lib file")?
+            .write_all(lib.as_bytes())
+            .context("failed to write lib file")?;
 
         // Run cargo.
         let (mut cmd, mut flags) = cargo_cmd();
