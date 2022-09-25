@@ -39,6 +39,7 @@ pub fn rustc_sysroot_src(mut rustc: Command) -> Result<PathBuf> {
 
 /// Encode a list of rustflags for use in CARGO_ENCODED_RUSTFLAGS.
 fn encode_rustflags(flags: Vec<OsString>) -> OsString {
+    // Sadly `join` doesn't work for `OsString` on older rustc.
     let mut res = OsString::new();
     for flag in flags {
         if !res.is_empty() {
