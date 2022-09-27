@@ -68,7 +68,7 @@ dependencies = [
 
 [[package]]
 name = "rustc-build-sysroot"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "rustc_version",
