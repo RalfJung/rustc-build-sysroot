@@ -38,7 +38,7 @@ pub fn rustc_sysroot_src(mut rustc: Command) -> Result<PathBuf> {
 }
 
 /// Encode a list of rustflags for use in CARGO_ENCODED_RUSTFLAGS.
-pub fn encode_rustflags(flags: Vec<OsString>) -> OsString {
+pub fn encode_rustflags(flags: &[OsString]) -> OsString {
     // Sadly `join` doesn't work for `OsString` on older rustc.
     let mut res = OsString::new();
     for flag in flags {
@@ -244,7 +244,7 @@ path = {src_dir_workspace_std:?}
         cmd.arg(&self.target);
         // Set rustflags.
         flags.push("-Zforce-unstable-if-unmarked".into());
-        cmd.env("CARGO_ENCODED_RUSTFLAGS", encode_rustflags(flags));
+        cmd.env("CARGO_ENCODED_RUSTFLAGS", encode_rustflags(&flags));
         // Make sure the results end up where we expect them.
         let build_target_dir = build_dir.path().join("target");
         cmd.env("CARGO_TARGET_DIR", &build_target_dir);
