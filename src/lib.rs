@@ -39,11 +39,15 @@ pub fn rustc_sysroot_src(mut rustc: Command) -> Result<PathBuf> {
 
 /// Encode a list of rustflags for use in CARGO_ENCODED_RUSTFLAGS.
 pub fn encode_rustflags(flags: &[OsString]) -> OsString {
-    // Sadly `join` doesn't work for `OsString` on older rustc.
     let mut res = OsString::new();
     for flag in flags {
         if !res.is_empty() {
             res.push(OsStr::new("\x1f"));
+        }
+        // Cargo ignores this env var if it's not UTF-8.
+        let flag = flag.to_str().expect("rustflags must be valid UTF-8");
+        if flag.contains('\x1f') {
+            panic!("rustflags must not contain `\\x1f` separator");
         }
         res.push(flag);
     }
