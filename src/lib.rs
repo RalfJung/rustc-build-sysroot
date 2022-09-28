@@ -11,7 +11,7 @@ use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 use rustc_version::VersionMeta;
-use tempdir::TempDir;
+use tempfile::TempDir;
 
 /// Returns where the given rustc stores its sysroot source code.
 pub fn rustc_sysroot_src(mut rustc: Command) -> Result<PathBuf> {
@@ -164,7 +164,7 @@ impl Sysroot {
         }
 
         // Prepare a workspace for cargo
-        let build_dir = TempDir::new("rustc-build-sysroot").context("failed to create tempdir")?;
+        let build_dir = TempDir::new().context("failed to create tempdir")?;
         let lock_file = build_dir.path().join("Cargo.lock");
         let manifest_file = build_dir.path().join("Cargo.toml");
         let lib_file = build_dir.path().join("lib.rs");
@@ -268,7 +268,7 @@ path = {src_dir_workspace_std:?}
 
         // Copy the output to a staging dir (so that we can do the final installation atomically.)
         fs::create_dir_all(&self.sysroot_dir).context("failed to create sysroot dir")?; // TempDir expects the parent to already exist
-        let staging_dir = TempDir::new_in(&self.sysroot_dir, "rustc-build-sysroot")
+        let staging_dir = TempDir::new_in(&self.sysroot_dir)
             .context("failed to create staging dir")?;
         let out_dir = build_target_dir
             .join(&self.target)

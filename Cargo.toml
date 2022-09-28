@@ -9,6 +9,6 @@ documentation = "https://docs.rs/rustc-build-sysroot"
 description = "Build a rustc sysroot with custom flags"
 
 [dependencies]
-tempdir = "0.3"
+tempfile = "3"
 rustc_version = "0.4"
 anyhow = "1.0"

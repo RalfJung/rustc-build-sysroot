@@ -2,7 +2,7 @@ use std::path::Path;
 use std::process::{self, Command};
 
 use rustc_version::VersionMeta;
-use tempdir::TempDir;
+use tempfile::TempDir;
 
 use rustc_build_sysroot::*;
 
@@ -16,7 +16,7 @@ fn run(cmd: &mut Command) {
 }
 
 fn test_sysroot_build(target: &str, mode: BuildMode, src_dir: &Path, rustc_version: &VersionMeta) {
-    let sysroot_dir = TempDir::new("rustc-build-sysroot-test-sysroot").unwrap();
+    let sysroot_dir = TempDir::new().unwrap();
     let sysroot = Sysroot::new(sysroot_dir.path(), target);
     sysroot
         .build_from_source(
@@ -34,7 +34,7 @@ fn test_sysroot_build(target: &str, mode: BuildMode, src_dir: &Path, rustc_versi
         .unwrap();
 
     let crate_name = "rustc-build-sysroot-test-crate";
-    let crate_dir = TempDir::new(crate_name).unwrap();
+    let crate_dir = TempDir::new().unwrap();
     run(Command::new("cargo")
         .args(&["new", crate_name])
         .current_dir(&crate_dir));
@@ -88,7 +88,7 @@ fn no_std() {
     let rustc_version = VersionMeta::for_command(Command::new("rustc")).unwrap();
     let src_dir = rustc_sysroot_src(Command::new("rustc")).unwrap();
 
-    let sysroot_dir = TempDir::new("rustc-build-sysroot-test-sysroot").unwrap();
+    let sysroot_dir = TempDir::new().unwrap();
     let sysroot = Sysroot::new(sysroot_dir.path(), "thumbv7em-none-eabihf");
     sysroot
         .build_from_source(
