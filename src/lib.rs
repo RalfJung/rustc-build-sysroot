@@ -54,6 +54,14 @@ pub fn encode_rustflags(flags: &[OsString]) -> OsString {
     res
 }
 
+/// Make a file writeable.
+fn make_writeable(p: &Path) -> Result<()> {
+    let mut perms = fs::metadata(p)?.permissions();
+    perms.set_readonly(false);
+    fs::set_permissions(p, perms).context("cannot set permissions")?;
+    Ok(())
+}
+
 /// The build mode to use for this sysroot.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum BuildMode {
@@ -176,6 +184,7 @@ impl Sysroot {
             &lock_file,
         )
         .context("failed to copy lockfile from sysroot source")?;
+        make_writeable(&lock_file).context("failed to make lockfile writeable")?;
         let crates = match config {
             SysrootConfig::NoStd => format!(
                 r#"
