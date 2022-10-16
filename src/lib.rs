@@ -2,9 +2,8 @@
 
 use std::collections::hash_map::DefaultHasher;
 use std::ffi::{OsStr, OsString};
-use std::fs::{self, File};
+use std::fs;
 use std::hash::{Hash, Hasher};
-use std::io::{Read, Write};
 use std::ops::Not;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -135,11 +134,7 @@ impl Sysroot {
 
     fn sysroot_read_hash(&self) -> Option<u64> {
         let hash_file = self.target_dir().join("lib").join(HASH_FILE_NAME);
-        let mut hash = String::new();
-        File::open(&hash_file)
-            .ok()?
-            .read_to_string(&mut hash)
-            .ok()?;
+        let hash = fs::read_to_string(&hash_file).ok()?;
         hash.parse().ok()
     }
 
@@ -234,18 +229,12 @@ path = {src_dir_workspace_std:?}
             src_dir_workspace_alloc = src_dir.join("rustc-std-workspace-alloc"),
             src_dir_workspace_std = src_dir.join("rustc-std-workspace-std"),
         );
-        File::create(&manifest_file)
-            .context("failed to create manifest file")?
-            .write_all(manifest.as_bytes())
-            .context("failed to write manifest file")?;
+        fs::write(&manifest_file, manifest.as_bytes()).context("failed to write manifest file")?;
         let lib = match config {
             SysrootConfig::NoStd => r#"#![no_std]"#,
             SysrootConfig::WithStd { .. } => "",
         };
-        File::create(&lib_file)
-            .context("failed to create lib file")?
-            .write_all(lib.as_bytes())
-            .context("failed to write lib file")?;
+        fs::write(&lib_file, lib.as_bytes()).context("failed to write lib file")?;
 
         // Run cargo.
         let (mut cmd, mut flags) = cargo_cmd();
@@ -295,10 +284,11 @@ path = {src_dir_workspace_std:?}
         }
 
         // Write the hash file (into the staging dir).
-        File::create(staging_dir.path().join(HASH_FILE_NAME))
-            .context("failed to create hash file")?
-            .write_all(cur_hash.to_string().as_bytes())
-            .context("failed to write hash file")?;
+        fs::write(
+            staging_dir.path().join(HASH_FILE_NAME),
+            cur_hash.to_string().as_bytes(),
+        )
+        .context("failed to write hash file")?;
 
         // Atomic copy to final destination via rename.
         let target_lib_dir = self.target_dir().join("lib");
