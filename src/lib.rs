@@ -28,12 +28,16 @@ pub fn rustc_sysroot_src(mut rustc: Command) -> Result<PathBuf> {
     let sysroot =
         std::str::from_utf8(&output.stdout).context("sysroot folder is not valid UTF-8")?;
     let sysroot = Path::new(sysroot.trim_end_matches('\n'));
-    Ok(sysroot
+    let rustc_src = sysroot
         .join("lib")
         .join("rustlib")
         .join("src")
         .join("rust")
-        .join("library"))
+        .join("library");
+    // There could be symlinks here, so better canonicalize to avoid busting the cache due to path
+    // changes.
+    let rustc_src = rustc_src.canonicalize().unwrap_or(rustc_src);
+    Ok(rustc_src)
 }
 
 /// Encode a list of rustflags for use in CARGO_ENCODED_RUSTFLAGS.
