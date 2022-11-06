@@ -1,4 +1,5 @@
 //! Offers an easy way to build a rustc sysroot from source.
+#![allow(clippy::needless_borrow)]
 
 use std::collections::hash_map::DefaultHasher;
 use std::env;
@@ -173,7 +174,11 @@ impl SysrootBuilder {
     }
 
     /// Computes the hash for the sysroot, so that we know whether we have to rebuild.
-    fn sysroot_compute_hash(&self, src_dir: &Path, rustc_version: &rustc_version::VersionMeta) -> u64 {
+    fn sysroot_compute_hash(
+        &self,
+        src_dir: &Path,
+        rustc_version: &rustc_version::VersionMeta,
+    ) -> u64 {
         let mut hasher = DefaultHasher::new();
 
         // For now, we just hash in the information we have in `self`.
@@ -205,7 +210,9 @@ impl SysrootBuilder {
             );
         }
         let target_lib_dir = self.target_dir().join("lib");
-        let cargo = self.cargo.take().unwrap_or_else(|| Command::new(env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo"))));
+        let cargo = self.cargo.take().unwrap_or_else(|| {
+            Command::new(env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo")))
+        });
         let rustc_version = match self.rustc_version.take() {
             Some(v) => v,
             None => rustc_version::version_meta()?,
