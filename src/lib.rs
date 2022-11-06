@@ -189,11 +189,14 @@ impl Sysroot {
                 r#"
 [dependencies.core]
 path = {src_dir_core:?}
+[dependencies.alloc]
+path = {src_dir_alloc:?}
 [dependencies.compiler_builtins]
 features = ["rustc-dep-of-std", "mem"]
 version = "*"
                 "#,
                 src_dir_core = src_dir.join("core"),
+                src_dir_alloc = src_dir.join("alloc"),
             ),
             SysrootConfig::WithStd { std_features } => format!(
                 r#"
