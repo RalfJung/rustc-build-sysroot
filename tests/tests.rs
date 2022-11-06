@@ -17,20 +17,16 @@ fn run(cmd: &mut Command) {
 
 fn test_sysroot_build(target: &str, mode: BuildMode, src_dir: &Path, rustc_version: &VersionMeta) {
     let sysroot_dir = TempDir::new().unwrap();
-    let sysroot = Sysroot::new(sysroot_dir.path(), target);
-    sysroot
-        .build_from_source(
-            src_dir,
-            mode,
-            SysrootConfig::WithStd { std_features: &[] },
-            rustc_version,
-            || {
-                let mut cmd = Command::new("cargo");
-                cmd.stdout(process::Stdio::null());
-                cmd.stderr(process::Stdio::null());
-                (cmd, vec![])
-            },
-        )
+    SysrootBuilder::new(sysroot_dir.path(), target)
+        .build_mode(mode)
+        .rustc_version(rustc_version.clone())
+        .cargo({
+            let mut cmd = Command::new("cargo");
+            cmd.stdout(process::Stdio::null());
+            cmd.stderr(process::Stdio::null());
+            cmd
+        })
+        .build_from_source(src_dir)
         .unwrap();
 
     let crate_name = "rustc-build-sysroot-test-crate";
@@ -85,23 +81,18 @@ fn cross() {
 
 #[test]
 fn no_std() {
-    let rustc_version = VersionMeta::for_command(Command::new("rustc")).unwrap();
     let src_dir = rustc_sysroot_src(Command::new("rustc")).unwrap();
 
     let sysroot_dir = TempDir::new().unwrap();
-    let sysroot = Sysroot::new(sysroot_dir.path(), "thumbv7em-none-eabihf");
-    sysroot
-        .build_from_source(
-            &src_dir,
-            BuildMode::Check,
-            SysrootConfig::NoStd,
-            &rustc_version,
-            || {
-                let mut cmd = Command::new("cargo");
-                cmd.stdout(process::Stdio::null());
-                cmd.stderr(process::Stdio::null());
-                (cmd, vec![])
-            },
-        )
+    SysrootBuilder::new(sysroot_dir.path(), "thumbv7em-none-eabihf")
+        .build_mode(BuildMode::Check)
+        .sysroot_config(SysrootConfig::NoStd)
+        .cargo({
+            let mut cmd = Command::new("cargo");
+            cmd.stdout(process::Stdio::null());
+            cmd.stderr(process::Stdio::null());
+            cmd
+        })
+        .build_from_source(&src_dir)
         .unwrap();
 }

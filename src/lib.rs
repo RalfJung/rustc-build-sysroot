@@ -1,6 +1,7 @@
 //! Offers an easy way to build a rustc sysroot from source.
 
 use std::collections::hash_map::DefaultHasher;
+use std::env;
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -9,7 +10,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
-use rustc_version::VersionMeta;
 use tempfile::TempDir;
 
 /// Returns where the given rustc stores its sysroot source code.
@@ -66,7 +66,7 @@ fn make_writeable(p: &Path) -> Result<()> {
 }
 
 /// The build mode to use for this sysroot.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum BuildMode {
     /// Do a full sysroot build. Suited for all purposes (like the regular sysroot), but only works
     /// for the host or for targets that have suitable development tools installed.
@@ -87,34 +87,82 @@ impl BuildMode {
 }
 
 /// Settings controlling how the sysroot will be built.
-#[derive(Copy, Clone, Debug)]
-pub enum SysrootConfig<'a> {
-    /// Build a no-std (core-only) sysroot.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum SysrootConfig {
+    /// Build a no-std (only core and alloc) sysroot.
     NoStd,
     /// Build a full sysroot with the `std` and `test` crates.
     WithStd {
         /// Features to enable for the `std` crate.
-        std_features: &'a [&'a str],
+        std_features: Vec<String>,
     },
 }
 
 /// Information about a to-be-created sysroot.
-pub struct Sysroot {
+pub struct SysrootBuilder {
     sysroot_dir: PathBuf,
     target: String,
+    config: SysrootConfig,
+    mode: BuildMode,
+    rustflags: Vec<OsString>,
+    cargo: Option<Command>,
+    rustc_version: Option<rustc_version::VersionMeta>,
 }
 
 /// Hash file name (in target/lib directory).
 const HASH_FILE_NAME: &str = ".rustc-build-sysroot-hash";
 
-impl Sysroot {
+impl SysrootBuilder {
     /// Prepare to create a new sysroot in the given folder (that folder should later be passed to
     /// rustc via `--sysroot`), for the given target.
     pub fn new(sysroot_dir: &Path, target: &str) -> Self {
-        Sysroot {
+        SysrootBuilder {
             sysroot_dir: sysroot_dir.to_owned(),
             target: target.to_owned(),
+            config: SysrootConfig::WithStd {
+                std_features: vec![],
+            },
+            mode: BuildMode::Build,
+            rustflags: vec![],
+            cargo: None,
+            rustc_version: None,
         }
+    }
+
+    /// Sets the build mode (regular build vs check-only build).
+    pub fn build_mode(mut self, build_mode: BuildMode) -> Self {
+        self.mode = build_mode;
+        self
+    }
+
+    /// Sets the sysroot configuration (which parts of the sysroot to build and with which features).
+    pub fn sysroot_config(mut self, sysroot_config: SysrootConfig) -> Self {
+        self.config = sysroot_config;
+        self
+    }
+
+    /// Appends the given flag.
+    pub fn rustflag(mut self, rustflag: impl Into<OsString>) -> Self {
+        self.rustflags.push(rustflag.into());
+        self
+    }
+
+    /// Appends the given flags.
+    pub fn rustflags(mut self, rustflags: impl IntoIterator<Item = impl Into<OsString>>) -> Self {
+        self.rustflags.extend(rustflags.into_iter().map(Into::into));
+        self
+    }
+
+    /// Sets the cargo command to call.
+    pub fn cargo(mut self, cargo: Command) -> Self {
+        self.cargo = Some(cargo);
+        self
+    }
+
+    /// Sets the rustc version information (in case the user has that available).
+    pub fn rustc_version(mut self, rustc_version: rustc_version::VersionMeta) -> Self {
+        self.rustc_version = Some(rustc_version);
+        self
     }
 
     fn target_dir(&self) -> PathBuf {
@@ -125,13 +173,16 @@ impl Sysroot {
     }
 
     /// Computes the hash for the sysroot, so that we know whether we have to rebuild.
-    fn sysroot_compute_hash(&self, src_dir: &Path, rustc_version: &VersionMeta) -> u64 {
+    fn sysroot_compute_hash(&self, src_dir: &Path, rustc_version: &rustc_version::VersionMeta) -> u64 {
         let mut hasher = DefaultHasher::new();
 
-        // For now, we just hash in the source dir and rustc commit.
+        // For now, we just hash in the information we have in `self`.
         // Ideally we'd recursively hash the entire folder but that sounds slow?
         src_dir.hash(&mut hasher);
-        rustc_version.commit_hash.hash(&mut hasher);
+        self.config.hash(&mut hasher);
+        self.mode.hash(&mut hasher);
+        self.rustflags.hash(&mut hasher);
+        rustc_version.hash(&mut hasher);
 
         hasher.finish()
     }
@@ -145,26 +196,23 @@ impl Sysroot {
     /// Build the `self` sysroot from the given sources.
     ///
     /// `src_dir` must be the `library` source folder, i.e., the one that contains `std/Cargo.toml`.
-    ///
-    /// `cargo_cmd` should return a command to invoke cargo (with whatever customization is desired)
-    /// and a list of rustflags to use.
-    pub fn build_from_source(
-        &self,
-        src_dir: &Path,
-        mode: BuildMode,
-        config: SysrootConfig<'_>,
-        rustc_version: &VersionMeta,
-        cargo_cmd: impl Fn() -> (Command, Vec<OsString>),
-    ) -> Result<()> {
+    pub fn build_from_source(mut self, src_dir: &Path) -> Result<()> {
+        // A bit of preparation.
         if !src_dir.join("std").join("Cargo.toml").exists() {
             bail!(
                 "{:?} does not seem to be a rust library source folder: `src/Cargo.toml` not found",
                 src_dir
             );
         }
+        let target_lib_dir = self.target_dir().join("lib");
+        let cargo = self.cargo.take().unwrap_or_else(|| Command::new(env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo"))));
+        let rustc_version = match self.rustc_version.take() {
+            Some(v) => v,
+            None => rustc_version::version_meta()?,
+        };
 
         // Check if we even need to do anything.
-        let cur_hash = self.sysroot_compute_hash(src_dir, rustc_version);
+        let cur_hash = self.sysroot_compute_hash(src_dir, &rustc_version);
         if self.sysroot_read_hash() == Some(cur_hash) {
             // Already done!
             return Ok(());
@@ -184,7 +232,7 @@ impl Sysroot {
         )
         .context("failed to copy lockfile from sysroot source")?;
         make_writeable(&lock_file).context("failed to make lockfile writeable")?;
-        let crates = match config {
+        let crates = match &self.config {
             SysrootConfig::NoStd => format!(
                 r#"
 [dependencies.core]
@@ -237,21 +285,22 @@ path = {src_dir_workspace_std:?}
             src_dir_workspace_std = src_dir.join("rustc-std-workspace-std"),
         );
         fs::write(&manifest_file, manifest.as_bytes()).context("failed to write manifest file")?;
-        let lib = match config {
+        let lib = match self.config {
             SysrootConfig::NoStd => r#"#![no_std]"#,
             SysrootConfig::WithStd { .. } => "",
         };
         fs::write(&lib_file, lib.as_bytes()).context("failed to write lib file")?;
 
         // Run cargo.
-        let (mut cmd, mut flags) = cargo_cmd();
-        cmd.arg(mode.as_str());
+        let mut cmd = cargo;
+        cmd.arg(self.mode.as_str());
         cmd.arg("--release");
         cmd.arg("--manifest-path");
         cmd.arg(&manifest_file);
         cmd.arg("--target");
         cmd.arg(&self.target);
         // Set rustflags.
+        let mut flags = self.rustflags;
         flags.push("-Zforce-unstable-if-unmarked".into());
         cmd.env("CARGO_ENCODED_RUSTFLAGS", encode_rustflags(&flags));
         // Make sure the results end up where we expect them.
@@ -298,7 +347,6 @@ path = {src_dir_workspace_std:?}
         .context("failed to write hash file")?;
 
         // Atomic copy to final destination via rename.
-        let target_lib_dir = self.target_dir().join("lib");
         if target_lib_dir.exists() {
             // Remove potentially outdated files.
             fs::remove_dir_all(&target_lib_dir).context("failed to clean sysroot target dir")?;
