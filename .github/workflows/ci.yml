@@ -23,10 +23,6 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
           components: rust-src
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          override: true
       - name: Run tests
         run: cargo test --locked
 
