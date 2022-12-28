@@ -1,5 +1,4 @@
 use std::fs;
-use std::path::Path;
 use std::process::{self, Command};
 
 use rustc_version::VersionMeta;
@@ -39,7 +38,7 @@ fn test_sysroot_build(target: &str, mode: BuildMode, rustc_version: &VersionMeta
     let crate_name = "rustc-build-sysroot-test-crate";
     let crate_dir = tempdir().unwrap();
     run(Command::new("cargo")
-        .args(&["new", crate_name])
+        .args(["new", crate_name])
         .current_dir(&crate_dir));
     let crate_dir = crate_dir.path().join(crate_name);
     run(Command::new("cargo")
@@ -51,7 +50,7 @@ fn test_sysroot_build(target: &str, mode: BuildMode, rustc_version: &VersionMeta
             "RUSTFLAGS",
             format!("--sysroot {}", sysroot_dir.path().display()),
         ));
-    if mode == BuildMode::Build && target == &rustc_version.host {
+    if mode == BuildMode::Build && target == rustc_version.host {
         run(Command::new("cargo")
             .arg("run")
             .current_dir(&crate_dir)
