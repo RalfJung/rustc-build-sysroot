@@ -102,7 +102,7 @@ pub enum SysrootConfig {
 /// Information about a to-be-created sysroot.
 pub struct SysrootBuilder {
     sysroot_dir: PathBuf,
-    target: String,
+    target: OsString,
     config: SysrootConfig,
     mode: BuildMode,
     rustflags: Vec<OsString>,
@@ -116,10 +116,10 @@ const HASH_FILE_NAME: &str = ".rustc-build-sysroot-hash";
 impl SysrootBuilder {
     /// Prepare to create a new sysroot in the given folder (that folder should later be passed to
     /// rustc via `--sysroot`), for the given target.
-    pub fn new(sysroot_dir: &Path, target: &str) -> Self {
+    pub fn new(sysroot_dir: &Path, target: impl Into<OsString>) -> Self {
         SysrootBuilder {
             sysroot_dir: sysroot_dir.to_owned(),
-            target: target.to_owned(),
+            target: target.into(),
             config: SysrootConfig::WithStd {
                 std_features: vec![],
             },
@@ -166,11 +166,19 @@ impl SysrootBuilder {
         self
     }
 
+    fn target_name(&self) -> &OsStr {
+        let path = Path::new(&self.target);
+        // If this is a filename, the name is obtained by stripping directory and extension.
+        // That will also work fine for built-in target names.
+        path.file_stem()
+            .expect("target name must contain a file name")
+    }
+
     fn target_dir(&self) -> PathBuf {
         self.sysroot_dir
             .join("lib")
             .join("rustlib")
-            .join(&self.target)
+            .join(&self.target_name())
     }
 
     /// Computes the hash for the sysroot, so that we know whether we have to rebuild.
@@ -210,6 +218,7 @@ impl SysrootBuilder {
             );
         }
         let target_lib_dir = self.target_dir().join("lib");
+        let target_name = self.target_name().to_owned();
         let cargo = self.cargo.take().unwrap_or_else(|| {
             Command::new(env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo")))
         });
@@ -332,7 +341,7 @@ path = {src_dir_workspace_std:?}
         let staging_dir =
             TempDir::new_in(&self.sysroot_dir).context("failed to create staging dir")?;
         let out_dir = build_target_dir
-            .join(&self.target)
+            .join(&target_name)
             .join("release")
             .join("deps");
         for entry in fs::read_dir(&out_dir).context("failed to read cargo out dir")? {
