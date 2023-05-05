@@ -88,25 +88,34 @@ impl BuildMode {
 }
 
 /// Settings controlling how the sysroot will be built.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum SysrootConfig {
     /// Build a no-std (only core and alloc) sysroot.
-    NoStd,
-    /// Build a full sysroot with the `std` and `test` crates.
-    WithStd {
-        /// Features to enable for the `std` crate.
-        std_features: Vec<String>,
-    },
+    Alloc,
+    /// Build a full sysroot with the `std`, `proc_macro`, and `test` crates.
+    Full,
 }
 
 /// Information about a to-be-created sysroot.
 pub struct SysrootBuilder {
+    /// Where to store the sysroot.
     sysroot_dir: PathBuf,
+    /// The target to build the sysroot for.
     target: OsString,
+    /// Which crates to include in the sysroot (from core-only to the usual full sysroot with `std`
+    /// and everything).
     config: SysrootConfig,
+    /// Features to enable for this sysroot. They will be set on the 'main' crate of the sysroot:
+    /// `alloc`, or `sysroot`, depending on the value of `config`.
+    features: Vec<String>,
+    /// Whether to do a check-build (for rmeta files) or a full build.
     mode: BuildMode,
+    /// Flags to pass to rustc.
     rustflags: Vec<OsString>,
+    /// How to invoke cargo.
     cargo: Option<Command>,
+    /// A place to store the rutsc version info so that we only query it once.
     rustc_version: Option<rustc_version::VersionMeta>,
 }
 
@@ -120,9 +129,8 @@ impl SysrootBuilder {
         SysrootBuilder {
             sysroot_dir: sysroot_dir.to_owned(),
             target: target.into(),
-            config: SysrootConfig::WithStd {
-                std_features: vec![],
-            },
+            config: SysrootConfig::Full,
+            features: vec![],
             mode: BuildMode::Build,
             rustflags: vec![],
             cargo: None,
@@ -139,6 +147,12 @@ impl SysrootBuilder {
     /// Sets the sysroot configuration (which parts of the sysroot to build and with which features).
     pub fn sysroot_config(mut self, sysroot_config: SysrootConfig) -> Self {
         self.config = sysroot_config;
+        self
+    }
+
+    /// Appends the given features.
+    pub fn features(mut self, features: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.features.extend(features.into_iter().map(Into::into));
         self
     }
 
@@ -248,47 +262,29 @@ impl SysrootBuilder {
         )
         .context("failed to copy lockfile from sysroot source")?;
         make_writeable(&lock_file).context("failed to make lockfile writeable")?;
-        let have_sysroot_crate = src_dir.join("sysroot").exists();
-        let crates = match &self.config {
-            SysrootConfig::NoStd => format!(
-                r#"
-[dependencies.core]
-path = {src_dir_core:?}
-[dependencies.alloc]
-path = {src_dir_alloc:?}
-[dependencies.compiler_builtins]
-features = ["rustc-dep-of-std", "mem"]
-version = "*"
-                "#,
-                src_dir_core = src_dir.join("core"),
-                src_dir_alloc = src_dir.join("alloc"),
-            ),
-            SysrootConfig::WithStd { std_features } if have_sysroot_crate => format!(
-                r#"
-[dependencies.std]
-features = {std_features:?}
-path = {src_dir_std:?}
-[dependencies.sysroot]
-path = {src_dir_sysroot:?}
-                "#,
-                std_features = std_features,
-                src_dir_std = src_dir.join("std"),
-                src_dir_sysroot = src_dir.join("sysroot"),
-            ),
-            // Fallback for old rustc where the main crate was `test`, not `sysroot`
-            SysrootConfig::WithStd { std_features } => format!(
-                r#"
-[dependencies.std]
-features = {std_features:?}
-path = {src_dir_std:?}
-[dependencies.test]
-path = {src_dir_test:?}
-                "#,
-                std_features = std_features,
-                src_dir_std = src_dir.join("std"),
-                src_dir_test = src_dir.join("test"),
-            ),
+        let main_crate = match self.config {
+            SysrootConfig::Alloc => "alloc",
+            SysrootConfig::Full => {
+                if src_dir.join("sysroot").exists() {
+                    "sysroot"
+                } else {
+                    // On older rustc, the `test` crate serves as the 'root' of the sysroiot build.
+                    // It forwards features to `std`.
+                    "test"
+                }
+            }
         };
+        let deps = format!(
+            r#"
+[dependencies.{main_crate}]
+features = {features:?}
+path = {src_dir:?}
+            "#,
+            main_crate = main_crate,
+            features = self.features,
+            src_dir = src_dir.join(main_crate),
+        );
+
         let manifest = format!(
             r#"
 [package]
@@ -300,7 +296,7 @@ version = "0.0.0"
 # empty dummy, just so that things are being built
 path = "lib.rs"
 
-{crates}
+{deps}
 
 [patch.crates-io.rustc-std-workspace-core]
 path = {src_dir_workspace_core:?}
@@ -309,17 +305,13 @@ path = {src_dir_workspace_alloc:?}
 [patch.crates-io.rustc-std-workspace-std]
 path = {src_dir_workspace_std:?}
             "#,
-            crates = crates,
+            deps = deps,
             src_dir_workspace_core = src_dir.join("rustc-std-workspace-core"),
             src_dir_workspace_alloc = src_dir.join("rustc-std-workspace-alloc"),
             src_dir_workspace_std = src_dir.join("rustc-std-workspace-std"),
         );
         fs::write(&manifest_file, manifest.as_bytes()).context("failed to write manifest file")?;
-        let lib = match self.config {
-            SysrootConfig::NoStd => r#"#![no_std]"#,
-            SysrootConfig::WithStd { .. } => "",
-        };
-        fs::write(&lib_file, lib.as_bytes()).context("failed to write lib file")?;
+        fs::write(&lib_file, r#"#![no_std]"#.as_bytes()).context("failed to write lib file")?;
 
         // Run cargo.
         let mut cmd = cargo;

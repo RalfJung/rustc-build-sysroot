@@ -89,7 +89,7 @@ fn no_std() {
     build_sysroot(
         SysrootBuilder::new(sysroot_dir.path(), "thumbv7em-none-eabihf")
             .build_mode(BuildMode::Check)
-            .sysroot_config(SysrootConfig::NoStd),
+            .sysroot_config(SysrootConfig::Alloc),
     );
 }
 
@@ -130,6 +130,6 @@ fn json_target() {
     build_sysroot(
         SysrootBuilder::new(sysroot_dir.path(), &target_file)
             .build_mode(BuildMode::Check)
-            .sysroot_config(SysrootConfig::NoStd),
+            .sysroot_config(SysrootConfig::Alloc),
     );
 }
