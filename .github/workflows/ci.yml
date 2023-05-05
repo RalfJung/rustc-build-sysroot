@@ -1,17 +1,28 @@
 name: CI
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+    - 'master'
+  pull_request:
+    branches:
+    - 'master'
+
+env:
+  # GHA enables the sparse registry by default; make sure that also works for older nightlies.
+  CARGO_UNSTABLE_SPARSE_REGISTRY: 'true'
 
 jobs:
   test:
     name: Test Suite
     strategy:
+      fail-fast: false
       matrix:
         rust:
           - nightly
+          - nightly-2023-01-01
           - nightly-2022-07-01
           - nightly-2022-01-01
-          - nightly-2021-07-01
         os:
           - ubuntu-latest
           - macos-latest
