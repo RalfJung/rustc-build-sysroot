@@ -267,19 +267,19 @@ version = "*"
 [dependencies.std]
 features = {std_features:?}
 path = {src_dir_std:?}
-[dependencies.test]
-path = {src_dir_test:?}
+[dependencies.sysroot]
+path = {src_dir_sysroot:?}
                 "#,
                 std_features = std_features,
                 src_dir_std = src_dir.join("std"),
-                src_dir_test = src_dir.join("test"),
+                src_dir_sysroot = src_dir.join("sysroot"),
             ),
         };
         let manifest = format!(
             r#"
 [package]
 authors = ["rustc-build-sysroot"]
-name = "sysroot"
+name = "custom-local-sysroot"
 version = "0.0.0"
 
 [lib]
