@@ -248,6 +248,7 @@ impl SysrootBuilder {
         )
         .context("failed to copy lockfile from sysroot source")?;
         make_writeable(&lock_file).context("failed to make lockfile writeable")?;
+        let have_sysroot_crate = src_dir.join("sysroot").exists();
         let crates = match &self.config {
             SysrootConfig::NoStd => format!(
                 r#"
@@ -262,7 +263,7 @@ version = "*"
                 src_dir_core = src_dir.join("core"),
                 src_dir_alloc = src_dir.join("alloc"),
             ),
-            SysrootConfig::WithStd { std_features } => format!(
+            SysrootConfig::WithStd { std_features } if have_sysroot_crate => format!(
                 r#"
 [dependencies.std]
 features = {std_features:?}
@@ -273,6 +274,19 @@ path = {src_dir_sysroot:?}
                 std_features = std_features,
                 src_dir_std = src_dir.join("std"),
                 src_dir_sysroot = src_dir.join("sysroot"),
+            ),
+            // Fallback for old rustc where the main crate was `test`, not `sysroot`
+            SysrootConfig::WithStd { std_features } => format!(
+                r#"
+[dependencies.std]
+features = {std_features:?}
+path = {src_dir_std:?}
+[dependencies.test]
+path = {src_dir_test:?}
+                "#,
+                std_features = std_features,
+                src_dir_std = src_dir.join("std"),
+                src_dir_test = src_dir.join("test"),
             ),
         };
         let manifest = format!(
