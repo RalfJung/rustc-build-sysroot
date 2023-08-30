@@ -1,12 +1,9 @@
 name: CI
 
 on:
-  push:
-    branches:
-    - 'master'
   pull_request:
-    branches:
-    - 'master'
+  push:
+    branches: ['master']
 
 env:
   # GHA enables the sparse registry by default; make sure that also works for older nightlies.
