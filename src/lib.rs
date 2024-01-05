@@ -174,7 +174,7 @@ impl SysrootBuilder {
             .expect("target name must contain a file name")
     }
 
-    fn target_dir(&self) -> PathBuf {
+    fn target_sysroot_dir(&self) -> PathBuf {
         self.sysroot_dir
             .join("lib")
             .join("rustlib")
@@ -201,7 +201,7 @@ impl SysrootBuilder {
     }
 
     fn sysroot_read_hash(&self) -> Option<u64> {
-        let hash_file = self.target_dir().join("lib").join(HASH_FILE_NAME);
+        let hash_file = self.target_sysroot_dir().join("lib").join(HASH_FILE_NAME);
         let hash = fs::read_to_string(&hash_file).ok()?;
         hash.parse().ok()
     }
@@ -217,7 +217,7 @@ impl SysrootBuilder {
                 src_dir
             );
         }
-        let target_lib_dir = self.target_dir().join("lib");
+        let sysroot_lib_dir = self.target_sysroot_dir().join("lib");
         let target_name = self.target_name().to_owned();
         let cargo = self.cargo.take().unwrap_or_else(|| {
             Command::new(env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo")))
@@ -377,17 +377,17 @@ path = {src_dir_workspace_std:?}
         .context("failed to write hash file")?;
 
         // Atomic copy to final destination via rename.
-        if target_lib_dir.exists() {
+        if sysroot_lib_dir.exists() {
             // Remove potentially outdated files.
-            fs::remove_dir_all(&target_lib_dir).context("failed to clean sysroot target dir")?;
+            fs::remove_dir_all(&sysroot_lib_dir).context("failed to clean sysroot target dir")?;
         }
         fs::create_dir_all(
-            target_lib_dir
+            sysroot_lib_dir
                 .parent()
                 .expect("target/lib dir must have a parent"),
         )
         .context("failed to create target directory")?;
-        fs::rename(staging_dir.path(), target_lib_dir).context("failed installing sysroot")?;
+        fs::rename(staging_dir.path(), sysroot_lib_dir).context("failed installing sysroot")?;
 
         Ok(())
     }
