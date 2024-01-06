@@ -166,12 +166,20 @@ impl SysrootBuilder {
         self
     }
 
+    /// Our configured target can be either a built-in target name, or a path to a target file.
+    /// We use the same logic as rustc to tell which is which:
+    /// https://github.com/rust-lang/rust/blob/8d39ec1825024f3014e1f847942ac5bbfcf055b0/compiler/rustc_session/src/config.rs#L2252-L2263
     fn target_name(&self) -> &OsStr {
         let path = Path::new(&self.target);
-        // If this is a filename, the name is obtained by stripping directory and extension.
-        // That will also work fine for built-in target names.
-        path.file_stem()
-            .expect("target name must contain a file name")
+        if path.extension().and_then(OsStr::to_str) == Some("json") {
+            // Path::file_stem and Path::extension are the last component of the path split on the
+            // rightmost '.' so if we have an extension we must have a file_stem.
+            path.file_stem().unwrap()
+        } else {
+            // The configured target doesn't end in ".json", so we assume that this is a builtin
+            // target.
+            &self.target
+        }
     }
 
     fn target_dir(&self) -> PathBuf {
