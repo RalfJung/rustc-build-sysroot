@@ -206,6 +206,97 @@ impl SysrootBuilder {
         hash.parse().ok()
     }
 
+    /// Generate the contents of the manifest file for the sysroot build.
+    fn gen_manifest(&self, src_dir: &Path) -> String {
+        let have_sysroot_crate = src_dir.join("sysroot").exists();
+        let crates = match &self.config {
+            SysrootConfig::NoStd => format!(
+                r#"
+[dependencies.core]
+path = {src_dir_core:?}
+[dependencies.alloc]
+path = {src_dir_alloc:?}
+[dependencies.compiler_builtins]
+features = ["rustc-dep-of-std", "mem"]
+version = "*"
+                "#,
+                src_dir_core = src_dir.join("core"),
+                src_dir_alloc = src_dir.join("alloc"),
+            ),
+            SysrootConfig::WithStd { std_features } if have_sysroot_crate => format!(
+                r#"
+[dependencies.std]
+features = {std_features:?}
+path = {src_dir_std:?}
+[dependencies.sysroot]
+path = {src_dir_sysroot:?}
+                "#,
+                std_features = std_features,
+                src_dir_std = src_dir.join("std"),
+                src_dir_sysroot = src_dir.join("sysroot"),
+            ),
+            // Fallback for old rustc where the main crate was `test`, not `sysroot`
+            SysrootConfig::WithStd { std_features } => format!(
+                r#"
+[dependencies.std]
+features = {std_features:?}
+path = {src_dir_std:?}
+[dependencies.test]
+path = {src_dir_test:?}
+                "#,
+                std_features = std_features,
+                src_dir_std = src_dir.join("std"),
+                src_dir_test = src_dir.join("test"),
+            ),
+        };
+
+        // If we include a patch for rustc-std-workspace-std for no_std sysroot builds, we get a
+        // warning from Cargo that the patch is unused. If this patching ever breaks that lint will
+        // probably be very helpful, so it would be best to not disable it.
+        // Currently the only user of rustc-std-workspace-alloc is std_detect, which is only used
+        // by std. So we only need to patch rustc-std-workspace-core in no_std sysroot builds, or
+        // that patch also produces a warning.
+        let patches = match &self.config {
+            SysrootConfig::NoStd => format!(
+                r#"
+[patch.crates-io.rustc-std-workspace-core]
+path = {src_dir_workspace_core:?}
+                "#,
+                src_dir_workspace_core = src_dir.join("rustc-std-workspace-core"),
+            ),
+            SysrootConfig::WithStd { .. } => format!(
+                r#"
+[patch.crates-io.rustc-std-workspace-core]
+path = {src_dir_workspace_core:?}
+[patch.crates-io.rustc-std-workspace-alloc]
+path = {src_dir_workspace_alloc:?}
+[patch.crates-io.rustc-std-workspace-std]
+path = {src_dir_workspace_std:?}
+                "#,
+                src_dir_workspace_core = src_dir.join("rustc-std-workspace-core"),
+                src_dir_workspace_alloc = src_dir.join("rustc-std-workspace-alloc"),
+                src_dir_workspace_std = src_dir.join("rustc-std-workspace-std"),
+            ),
+        };
+
+        format!(
+            r#"
+[package]
+authors = ["rustc-build-sysroot"]
+name = "custom-local-sysroot"
+version = "0.0.0"
+
+[lib]
+# empty dummy, just so that things are being built
+path = "lib.rs"
+
+{crates}
+
+{patches}
+            "#
+        )
+    }
+
     /// Build the `self` sysroot from the given sources.
     ///
     /// `src_dir` must be the `library` source folder, i.e., the one that contains `std/Cargo.toml`.
@@ -248,72 +339,7 @@ impl SysrootBuilder {
         )
         .context("failed to copy lockfile from sysroot source")?;
         make_writeable(&lock_file).context("failed to make lockfile writeable")?;
-        let have_sysroot_crate = src_dir.join("sysroot").exists();
-        let crates = match &self.config {
-            SysrootConfig::NoStd => format!(
-                r#"
-[dependencies.core]
-path = {src_dir_core:?}
-[dependencies.alloc]
-path = {src_dir_alloc:?}
-[dependencies.compiler_builtins]
-features = ["rustc-dep-of-std", "mem"]
-version = "*"
-                "#,
-                src_dir_core = src_dir.join("core"),
-                src_dir_alloc = src_dir.join("alloc"),
-            ),
-            SysrootConfig::WithStd { std_features } if have_sysroot_crate => format!(
-                r#"
-[dependencies.std]
-features = {std_features:?}
-path = {src_dir_std:?}
-[dependencies.sysroot]
-path = {src_dir_sysroot:?}
-                "#,
-                std_features = std_features,
-                src_dir_std = src_dir.join("std"),
-                src_dir_sysroot = src_dir.join("sysroot"),
-            ),
-            // Fallback for old rustc where the main crate was `test`, not `sysroot`
-            SysrootConfig::WithStd { std_features } => format!(
-                r#"
-[dependencies.std]
-features = {std_features:?}
-path = {src_dir_std:?}
-[dependencies.test]
-path = {src_dir_test:?}
-                "#,
-                std_features = std_features,
-                src_dir_std = src_dir.join("std"),
-                src_dir_test = src_dir.join("test"),
-            ),
-        };
-        let manifest = format!(
-            r#"
-[package]
-authors = ["rustc-build-sysroot"]
-name = "custom-local-sysroot"
-version = "0.0.0"
-
-[lib]
-# empty dummy, just so that things are being built
-path = "lib.rs"
-
-{crates}
-
-[patch.crates-io.rustc-std-workspace-core]
-path = {src_dir_workspace_core:?}
-[patch.crates-io.rustc-std-workspace-alloc]
-path = {src_dir_workspace_alloc:?}
-[patch.crates-io.rustc-std-workspace-std]
-path = {src_dir_workspace_std:?}
-            "#,
-            crates = crates,
-            src_dir_workspace_core = src_dir.join("rustc-std-workspace-core"),
-            src_dir_workspace_alloc = src_dir.join("rustc-std-workspace-alloc"),
-            src_dir_workspace_std = src_dir.join("rustc-std-workspace-std"),
-        );
+        let manifest = self.gen_manifest(src_dir);
         fs::write(&manifest_file, manifest.as_bytes()).context("failed to write manifest file")?;
         let lib = match self.config {
             SysrootConfig::NoStd => r#"#![no_std]"#,
