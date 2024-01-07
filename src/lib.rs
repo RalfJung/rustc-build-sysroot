@@ -1,5 +1,8 @@
 //! Offers an easy way to build a rustc sysroot from source.
-#![allow(clippy::needless_borrow)]
+
+// We prefer to always borrow rather than having to figure out whether we can move or borrow (which
+// depends on whether the variable is used again later).
+#![allow(clippy::needless_borrows_for_generic_args)]
 
 use std::collections::hash_map::DefaultHasher;
 use std::env;
@@ -59,6 +62,21 @@ pub fn encode_rustflags(flags: &[OsString]) -> OsString {
 }
 
 /// Make a file writeable.
+#[cfg(unix)]
+fn make_writeable(p: &Path) -> Result<()> {
+    // On Unix we avoid `set_readonly(false)`, see
+    // <https://rust-lang.github.io/rust-clippy/master/index.html#permissions_set_readonly_false>.
+    use std::fs::Permissions;
+    use std::os::unix::fs::PermissionsExt;
+
+    let perms = fs::metadata(p)?.permissions();
+    let perms = Permissions::from_mode(perms.mode() | 0o600); // read/write for owner
+    fs::set_permissions(p, perms).context("cannot set permissions")?;
+    Ok(())
+}
+
+/// Make a file writeable.
+#[cfg(not(unix))]
 fn make_writeable(p: &Path) -> Result<()> {
     let mut perms = fs::metadata(p)?.permissions();
     perms.set_readonly(false);
@@ -194,7 +212,7 @@ impl SysrootBuilder {
         self.sysroot_dir
             .join("lib")
             .join("rustlib")
-            .join(&self.target_name())
+            .join(self.target_name())
     }
 
     /// Computes the hash for the sysroot, so that we know whether we have to rebuild.
