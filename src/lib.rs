@@ -143,12 +143,20 @@ impl SysrootBuilder {
     }
 
     /// Appends the given flag.
+    ///
+    /// If no `--cap-lints` argument is configured, we will add `--cap-lints=warn`.
+    /// This emulates the usual behavior of Cargo: Lints are normally capped when building
+    /// dependencies, except that they are not capped when building path dependencies, except that
+    /// path dependencies are still capped if they are part of `-Zbuild-std`.
     pub fn rustflag(mut self, rustflag: impl Into<OsString>) -> Self {
         self.rustflags.push(rustflag.into());
         self
     }
 
     /// Appends the given flags.
+    ///
+    /// If no `--cap-lints` argument is configured, we will add `--cap-lints=warn`. See
+    /// [`SysrootBuilder::rustflag`] for more explanation.
     pub fn rustflags(mut self, rustflags: impl IntoIterator<Item = impl Into<OsString>>) -> Self {
         self.rustflags.extend(rustflags.into_iter().map(Into::into));
         self
@@ -325,6 +333,25 @@ path = "lib.rs"
             Some(v) => v,
             None => rustc_version::version_meta()?,
         };
+
+        // The whole point of this crate is to build the standard library in nonstandard
+        // configurations, which may trip lints due to untested combinations of cfgs.
+        // Cargo applies --cap-lints=allow or --cap-lints=warn when handling -Zbuild-std, which we
+        // of course are not using:
+        // https://github.com/rust-lang/cargo/blob/2ce45605d9db521b5fd6c1211ce8de6055fdb24e/src/cargo/core/compiler/mod.rs#L899
+        // https://github.com/rust-lang/cargo/blob/2ce45605d9db521b5fd6c1211ce8de6055fdb24e/src/cargo/core/compiler/unit.rs#L102-L109
+        // All the standard library crates are path dependencies, and they also sometimes pull in
+        // separately-maintained crates like backtrace by treating their crate roots as module
+        // roots. If we do not cap lints, we can get lint failures outside core or std.
+        // We cannot set --cap-lints=allow because Cargo needs to parse warnings to understand the
+        // output of --print=file-names for crate-types that the target does not support.
+        if !self.rustflags.iter().any(|flag| {
+            // FIXME: OsStr::as_encoded_bytes is cleaner here
+            flag.to_str()
+                .map_or(false, |f| f.starts_with("--cap-lints"))
+        }) {
+            self.rustflags.push("--cap-lints=warn".into());
+        }
 
         // Check if we even need to do anything.
         let cur_hash = self.sysroot_compute_hash(src_dir, &rustc_version);
