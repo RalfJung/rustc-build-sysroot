@@ -289,6 +289,35 @@ path = {src_dir_test:?}
                 src_dir_test = src_dir.join("test"),
             ),
         };
+
+        // If we include a patch for rustc-std-workspace-std for no_std sysroot builds, we get a
+        // warning from Cargo that the patch is unused. If this patching ever breaks that lint will
+        // probably be very helpful, so it would be best to not disable it.
+        // Currently the only user of rustc-std-workspace-alloc is std_detect, which is only used
+        // by std. So we only need to patch rustc-std-workspace-core in no_std sysroot builds, or
+        // that patch also produces a warning.
+        let patches = match &self.config {
+            SysrootConfig::NoStd => format!(
+                r#"
+[patch.crates-io.rustc-std-workspace-core]
+path = {src_dir_workspace_core:?}
+                "#,
+                src_dir_workspace_core = src_dir.join("rustc-std-workspace-core"),
+            ),
+            SysrootConfig::WithStd { .. } => format!(
+                r#"
+[patch.crates-io.rustc-std-workspace-core]
+path = {src_dir_workspace_core:?}
+[patch.crates-io.rustc-std-workspace-alloc]
+path = {src_dir_workspace_alloc:?}
+[patch.crates-io.rustc-std-workspace-std]
+path = {src_dir_workspace_std:?}
+                "#,
+                src_dir_workspace_core = src_dir.join("rustc-std-workspace-core"),
+                src_dir_workspace_alloc = src_dir.join("rustc-std-workspace-alloc"),
+                src_dir_workspace_std = src_dir.join("rustc-std-workspace-std"),
+            ),
+        };
         let manifest = format!(
             r#"
 [package]
@@ -302,17 +331,8 @@ path = "lib.rs"
 
 {crates}
 
-[patch.crates-io.rustc-std-workspace-core]
-path = {src_dir_workspace_core:?}
-[patch.crates-io.rustc-std-workspace-alloc]
-path = {src_dir_workspace_alloc:?}
-[patch.crates-io.rustc-std-workspace-std]
-path = {src_dir_workspace_std:?}
-            "#,
-            crates = crates,
-            src_dir_workspace_core = src_dir.join("rustc-std-workspace-core"),
-            src_dir_workspace_alloc = src_dir.join("rustc-std-workspace-alloc"),
-            src_dir_workspace_std = src_dir.join("rustc-std-workspace-std"),
+{patches}
+            "#
         );
         fs::write(&manifest_file, manifest.as_bytes()).context("failed to write manifest file")?;
         let lib = match self.config {
