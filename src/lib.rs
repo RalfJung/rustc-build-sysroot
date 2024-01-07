@@ -206,48 +206,8 @@ impl SysrootBuilder {
         hash.parse().ok()
     }
 
-    /// Build the `self` sysroot from the given sources.
-    ///
-    /// `src_dir` must be the `library` source folder, i.e., the one that contains `std/Cargo.toml`.
-    pub fn build_from_source(mut self, src_dir: &Path) -> Result<()> {
-        // A bit of preparation.
-        if !src_dir.join("std").join("Cargo.toml").exists() {
-            bail!(
-                "{:?} does not seem to be a rust library source folder: `src/Cargo.toml` not found",
-                src_dir
-            );
-        }
-        let target_lib_dir = self.target_dir().join("lib");
-        let target_name = self.target_name().to_owned();
-        let cargo = self.cargo.take().unwrap_or_else(|| {
-            Command::new(env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo")))
-        });
-        let rustc_version = match self.rustc_version.take() {
-            Some(v) => v,
-            None => rustc_version::version_meta()?,
-        };
-
-        // Check if we even need to do anything.
-        let cur_hash = self.sysroot_compute_hash(src_dir, &rustc_version);
-        if self.sysroot_read_hash() == Some(cur_hash) {
-            // Already done!
-            return Ok(());
-        }
-
-        // Prepare a workspace for cargo
-        let build_dir = TempDir::new().context("failed to create tempdir")?;
-        let lock_file = build_dir.path().join("Cargo.lock");
-        let manifest_file = build_dir.path().join("Cargo.toml");
-        let lib_file = build_dir.path().join("lib.rs");
-        fs::copy(
-            src_dir
-                .parent()
-                .expect("src_dir must have a parent")
-                .join("Cargo.lock"),
-            &lock_file,
-        )
-        .context("failed to copy lockfile from sysroot source")?;
-        make_writeable(&lock_file).context("failed to make lockfile writeable")?;
+    /// Generate the contents of the manifest file for the sysroot build.
+    fn gen_manifest(&self, src_dir: &Path) -> String {
         let have_sysroot_crate = src_dir.join("sysroot").exists();
         let crates = match &self.config {
             SysrootConfig::NoStd => format!(
@@ -318,7 +278,8 @@ path = {src_dir_workspace_std:?}
                 src_dir_workspace_std = src_dir.join("rustc-std-workspace-std"),
             ),
         };
-        let manifest = format!(
+
+        format!(
             r#"
 [package]
 authors = ["rustc-build-sysroot"]
@@ -333,7 +294,52 @@ path = "lib.rs"
 
 {patches}
             "#
-        );
+        )
+    }
+
+    /// Build the `self` sysroot from the given sources.
+    ///
+    /// `src_dir` must be the `library` source folder, i.e., the one that contains `std/Cargo.toml`.
+    pub fn build_from_source(mut self, src_dir: &Path) -> Result<()> {
+        // A bit of preparation.
+        if !src_dir.join("std").join("Cargo.toml").exists() {
+            bail!(
+                "{:?} does not seem to be a rust library source folder: `src/Cargo.toml` not found",
+                src_dir
+            );
+        }
+        let target_lib_dir = self.target_dir().join("lib");
+        let target_name = self.target_name().to_owned();
+        let cargo = self.cargo.take().unwrap_or_else(|| {
+            Command::new(env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo")))
+        });
+        let rustc_version = match self.rustc_version.take() {
+            Some(v) => v,
+            None => rustc_version::version_meta()?,
+        };
+
+        // Check if we even need to do anything.
+        let cur_hash = self.sysroot_compute_hash(src_dir, &rustc_version);
+        if self.sysroot_read_hash() == Some(cur_hash) {
+            // Already done!
+            return Ok(());
+        }
+
+        // Prepare a workspace for cargo
+        let build_dir = TempDir::new().context("failed to create tempdir")?;
+        let lock_file = build_dir.path().join("Cargo.lock");
+        let manifest_file = build_dir.path().join("Cargo.toml");
+        let lib_file = build_dir.path().join("lib.rs");
+        fs::copy(
+            src_dir
+                .parent()
+                .expect("src_dir must have a parent")
+                .join("Cargo.lock"),
+            &lock_file,
+        )
+        .context("failed to copy lockfile from sysroot source")?;
+        make_writeable(&lock_file).context("failed to make lockfile writeable")?;
+        let manifest = self.gen_manifest(src_dir);
         fs::write(&manifest_file, manifest.as_bytes()).context("failed to write manifest file")?;
         let lib = match self.config {
             SysrootConfig::NoStd => r#"#![no_std]"#,
