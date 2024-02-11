@@ -15,6 +15,7 @@ use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 use tempfile::TempDir;
+use walkdir::WalkDir;
 
 /// Returns where the given rustc stores its sysroot source code.
 pub fn rustc_sysroot_src(mut rustc: Command) -> Result<PathBuf> {
@@ -81,6 +82,29 @@ fn make_writeable(p: &Path) -> Result<()> {
     let mut perms = fs::metadata(p)?.permissions();
     perms.set_readonly(false);
     fs::set_permissions(p, perms).context("cannot set permissions")?;
+    Ok(())
+}
+
+/// Hash the metadata and size of every file in a directory, recursively.
+pub fn hash_recursive(path: &Path, hasher: &mut DefaultHasher) -> Result<()> {
+    // We sort the entries to ensure a stable hash.
+    for entry in WalkDir::new(path)
+        .follow_links(true)
+        .sort_by_file_name()
+        .into_iter()
+    {
+        let entry = entry?;
+        // WalkDir yields the directories as well, and File::open will succeed on them. The
+        // reliable way to distinguish directories here is to check explicitly.
+        if entry.file_type().is_dir() {
+            continue;
+        }
+        let meta = entry.metadata()?;
+        // Hashing the mtime and file size should catch basically all mutations,
+        // and is faster than hashing the file contents.
+        meta.modified()?.hash(hasher);
+        meta.len().hash(hasher);
+    }
     Ok(())
 }
 
@@ -220,18 +244,17 @@ impl SysrootBuilder {
         &self,
         src_dir: &Path,
         rustc_version: &rustc_version::VersionMeta,
-    ) -> u64 {
+    ) -> Result<u64> {
         let mut hasher = DefaultHasher::new();
 
-        // For now, we just hash in the information we have in `self`.
-        // Ideally we'd recursively hash the entire folder but that sounds slow?
         src_dir.hash(&mut hasher);
+        hash_recursive(src_dir, &mut hasher)?;
         self.config.hash(&mut hasher);
         self.mode.hash(&mut hasher);
         self.rustflags.hash(&mut hasher);
         rustc_version.hash(&mut hasher);
 
-        hasher.finish()
+        Ok(hasher.finish())
     }
 
     fn sysroot_read_hash(&self) -> Option<u64> {
@@ -372,7 +395,7 @@ path = "lib.rs"
         }
 
         // Check if we even need to do anything.
-        let cur_hash = self.sysroot_compute_hash(src_dir, &rustc_version);
+        let cur_hash = self.sysroot_compute_hash(src_dir, &rustc_version)?;
         if self.sysroot_read_hash() == Some(cur_hash) {
             // Already done!
             return Ok(());
