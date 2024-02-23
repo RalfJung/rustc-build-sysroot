@@ -86,7 +86,7 @@ fn make_writeable(p: &Path) -> Result<()> {
 }
 
 /// Hash the metadata and size of every file in a directory, recursively.
-pub fn hash_recursive(path: &Path, hasher: &mut DefaultHasher) -> Result<()> {
+fn hash_recursive(path: &Path, hasher: &mut DefaultHasher) -> Result<()> {
     // We sort the entries to ensure a stable hash.
     for entry in WalkDir::new(path)
         .follow_links(true)
