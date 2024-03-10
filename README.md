@@ -12,5 +12,8 @@ Building the sysroot from source is useful for tools like [Miri] and [cargo-care
 standard library to be built with different flags. Building a sysroot from different sources is
 *not* a goal of this crate.
 
+The crate builds on stable Rust, but running it requires a recent nightly version. Only nightly
+versions from the last 3 months are supported.
+
 [Miri]: https://github.com/rust-lang/miri
 [cargo-careful]: https://github.com/RalfJung/cargo-careful
