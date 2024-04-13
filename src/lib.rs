@@ -159,6 +159,23 @@ impl SysrootBuilder {
     /// Prepare to create a new sysroot in the given folder (that folder should later be passed to
     /// rustc via `--sysroot`), for the given target.
     pub fn new(sysroot_dir: &Path, target: impl Into<OsString>) -> Self {
+        let default_flags = &[
+            // This is usually set by bootstrap via `RUSTC_FORCE_UNSTABLE`.
+            "-Zforce-unstable-if-unmarked",
+            // Don't fail when there are lints.
+            // The whole point of this crate is to build the standard library in nonstandard
+            // configurations, which may trip lints due to untested combinations of cfgs.
+            // Cargo applies --cap-lints=allow or --cap-lints=warn when handling -Zbuild-std, which we
+            // of course are not using:
+            // https://github.com/rust-lang/cargo/blob/2ce45605d9db521b5fd6c1211ce8de6055fdb24e/src/cargo/core/compiler/mod.rs#L899
+            // https://github.com/rust-lang/cargo/blob/2ce45605d9db521b5fd6c1211ce8de6055fdb24e/src/cargo/core/compiler/unit.rs#L102-L109
+            // All the standard library crates are path dependencies, and they also sometimes pull in
+            // separately-maintained crates like backtrace by treating their crate roots as module
+            // roots. If we do not cap lints, we can get lint failures outside core or std.
+            // We cannot set --cap-lints=allow because Cargo needs to parse warnings to understand the
+            // output of --print=file-names for crate-types that the target does not support.
+            "--cap-lints=warn",
+        ];
         SysrootBuilder {
             sysroot_dir: sysroot_dir.to_owned(),
             target: target.into(),
@@ -166,7 +183,7 @@ impl SysrootBuilder {
                 std_features: vec![],
             },
             mode: BuildMode::Build,
-            rustflags: vec![],
+            rustflags: default_flags.iter().map(Into::into).collect(),
             cargo: None,
             rustc_version: None,
         }
@@ -375,25 +392,6 @@ path = "lib.rs"
             None => rustc_version::version_meta()?,
         };
 
-        // The whole point of this crate is to build the standard library in nonstandard
-        // configurations, which may trip lints due to untested combinations of cfgs.
-        // Cargo applies --cap-lints=allow or --cap-lints=warn when handling -Zbuild-std, which we
-        // of course are not using:
-        // https://github.com/rust-lang/cargo/blob/2ce45605d9db521b5fd6c1211ce8de6055fdb24e/src/cargo/core/compiler/mod.rs#L899
-        // https://github.com/rust-lang/cargo/blob/2ce45605d9db521b5fd6c1211ce8de6055fdb24e/src/cargo/core/compiler/unit.rs#L102-L109
-        // All the standard library crates are path dependencies, and they also sometimes pull in
-        // separately-maintained crates like backtrace by treating their crate roots as module
-        // roots. If we do not cap lints, we can get lint failures outside core or std.
-        // We cannot set --cap-lints=allow because Cargo needs to parse warnings to understand the
-        // output of --print=file-names for crate-types that the target does not support.
-        if !self.rustflags.iter().any(|flag| {
-            // FIXME: OsStr::as_encoded_bytes is cleaner here
-            flag.to_str()
-                .map_or(false, |f| f.starts_with("--cap-lints"))
-        }) {
-            self.rustflags.push("--cap-lints=warn".into());
-        }
-
         // Check if we even need to do anything.
         let cur_hash = self.sysroot_compute_hash(src_dir, &rustc_version)?;
         if self.sysroot_read_hash() == Some(cur_hash) {
@@ -432,9 +430,7 @@ path = "lib.rs"
         cmd.arg("--target");
         cmd.arg(&self.target);
         // Set rustflags.
-        let mut flags = self.rustflags;
-        flags.push("-Zforce-unstable-if-unmarked".into());
-        cmd.env("CARGO_ENCODED_RUSTFLAGS", encode_rustflags(&flags));
+        cmd.env("CARGO_ENCODED_RUSTFLAGS", encode_rustflags(&self.rustflags));
         // Make sure the results end up where we expect them.
         let build_target_dir = build_dir.path().join("target");
         cmd.env("CARGO_TARGET_DIR", &build_target_dir);
