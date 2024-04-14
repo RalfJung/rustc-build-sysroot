@@ -351,9 +351,8 @@ version = "0.0.0"
 path = "lib.rs"
 
 [profile.{DEFAULT_SYSROOT_PROFILE}]
-# While it says "inherits", we override all settings.
-# This is to insulate us from any custom release profile.
-# The only reason we use inherits is because it's required.
+# We inherit from the local release profile, but then overwrite some
+# settings to ensure we still get a working sysroot.
 inherits = "release"
 panic = 'unwind'
 
