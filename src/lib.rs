@@ -17,6 +17,9 @@ use anyhow::{bail, Context, Result};
 use tempfile::TempDir;
 use walkdir::WalkDir;
 
+/// The name of the profile used for buliding the sysroot.
+const DEFAULT_SYSROOT_PROFILE: &str = "custom_sysroot";
+
 /// Returns where the given rustc stores its sysroot source code.
 pub fn rustc_sysroot_src(mut rustc: Command) -> Result<PathBuf> {
     let output = rustc
@@ -364,6 +367,12 @@ version = "0.0.0"
 # empty dummy, just so that things are being built
 path = "lib.rs"
 
+[profile.{DEFAULT_SYSROOT_PROFILE}]
+# We inherit from the local release profile, but then overwrite some
+# settings to ensure we still get a working sysroot.
+inherits = "release"
+panic = 'unwind'
+
 {crates}
 
 {patches}
@@ -424,7 +433,8 @@ path = "lib.rs"
         // Run cargo.
         let mut cmd = cargo;
         cmd.arg(self.mode.as_str());
-        cmd.arg("--release");
+        cmd.arg("--profile");
+        cmd.arg(DEFAULT_SYSROOT_PROFILE);
         cmd.arg("--manifest-path");
         cmd.arg(&manifest_file);
         cmd.arg("--target");
@@ -454,7 +464,7 @@ path = "lib.rs"
             TempDir::new_in(&self.sysroot_dir).context("failed to create staging dir")?;
         let out_dir = build_target_dir
             .join(&target_name)
-            .join("release")
+            .join(DEFAULT_SYSROOT_PROFILE)
             .join("deps");
         for entry in fs::read_dir(&out_dir).context("failed to read cargo out dir")? {
             let entry = entry.context("failed to read cargo out dir entry")?;
