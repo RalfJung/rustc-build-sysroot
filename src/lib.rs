@@ -173,7 +173,7 @@ impl SysrootBuilder {
             // output of --print=file-names for crate-types that the target does not support.
             "--cap-lints=warn",
             // We allow `unexpected_cfgs` as the sysroot has tons of custom `cfg` that rustc does not know about.
-            "-Aunexpected_cfgs"
+            "-Aunexpected_cfgs",
         ];
         SysrootBuilder {
             sysroot_dir: sysroot_dir.to_owned(),
