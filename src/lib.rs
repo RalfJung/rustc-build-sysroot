@@ -168,16 +168,12 @@ impl SysrootBuilder {
             // Don't fail when there are lints.
             // The whole point of this crate is to build the standard library in nonstandard
             // configurations, which may trip lints due to untested combinations of cfgs.
-            // Cargo applies --cap-lints=allow or --cap-lints=warn when handling -Zbuild-std, which we
-            // of course are not using:
-            // https://github.com/rust-lang/cargo/blob/2ce45605d9db521b5fd6c1211ce8de6055fdb24e/src/cargo/core/compiler/mod.rs#L899
-            // https://github.com/rust-lang/cargo/blob/2ce45605d9db521b5fd6c1211ce8de6055fdb24e/src/cargo/core/compiler/unit.rs#L102-L109
-            // All the standard library crates are path dependencies, and they also sometimes pull in
-            // separately-maintained crates like backtrace by treating their crate roots as module
-            // roots. If we do not cap lints, we can get lint failures outside core or std.
-            // We cannot set --cap-lints=allow because Cargo needs to parse warnings to understand the
+            // This matches what cargo does for dependencies.
+            // We cannot set `--cap-lints=allow` because Cargo needs to parse warnings to understand the
             // output of --print=file-names for crate-types that the target does not support.
             "--cap-lints=warn",
+            // We allow `unexpected_cfgs` as the sysroot has tons of custom `cfg` that rustc does not know about.
+            "-Aunexpected_cfgs"
         ];
         SysrootBuilder {
             sysroot_dir: sysroot_dir.to_owned(),
