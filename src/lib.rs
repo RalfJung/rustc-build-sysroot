@@ -145,7 +145,7 @@ pub enum SysrootConfig {
 }
 
 /// Information about a to-be-created sysroot.
-pub struct SysrootBuilder {
+pub struct SysrootBuilder<'a> {
     sysroot_dir: PathBuf,
     target: OsString,
     config: SysrootConfig,
@@ -153,12 +153,23 @@ pub struct SysrootBuilder {
     rustflags: Vec<OsString>,
     cargo: Option<Command>,
     rustc_version: Option<rustc_version::VersionMeta>,
+    when_build_required: Option<Box<dyn FnOnce() + 'a>>,
+}
+
+/// Whether a successful [`SysrootBuilder::build_from_source`] call found a cached sysroot or
+/// built a fresh one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SysrootStatus {
+    /// The required sysroot is already cached.
+    AlreadyCached,
+    /// A fresh sysroot was just compiled.
+    SysrootBuilt,
 }
 
 /// Hash file name (in target/lib directory).
 const HASH_FILE_NAME: &str = ".rustc-build-sysroot-hash";
 
-impl SysrootBuilder {
+impl<'a> SysrootBuilder<'a> {
     /// Prepare to create a new sysroot in the given folder (that folder should later be passed to
     /// rustc via `--sysroot`), for the given target.
     pub fn new(sysroot_dir: &Path, target: impl Into<OsString>) -> Self {
@@ -185,6 +196,7 @@ impl SysrootBuilder {
             rustflags: default_flags.iter().map(Into::into).collect(),
             cargo: None,
             rustc_version: None,
+            when_build_required: None,
         }
     }
 
@@ -229,6 +241,13 @@ impl SysrootBuilder {
     /// Sets the rustc version information (in case the user has that available).
     pub fn rustc_version(mut self, rustc_version: rustc_version::VersionMeta) -> Self {
         self.rustc_version = Some(rustc_version);
+        self
+    }
+
+    /// Sets the hook that will be called if we don't have a cached sysroot available and a new one
+    /// will be compiled.
+    pub fn when_build_required(mut self, when_build_required: impl FnOnce() + 'a) -> Self {
+        self.when_build_required = Some(Box::new(when_build_required));
         self
     }
 
@@ -379,7 +398,7 @@ panic = 'unwind'
     /// Build the `self` sysroot from the given sources.
     ///
     /// `src_dir` must be the `library` source folder, i.e., the one that contains `std/Cargo.toml`.
-    pub fn build_from_source(mut self, src_dir: &Path) -> Result<()> {
+    pub fn build_from_source(mut self, src_dir: &Path) -> Result<SysrootStatus> {
         // A bit of preparation.
         if !src_dir.join("std").join("Cargo.toml").exists() {
             bail!(
@@ -401,7 +420,12 @@ panic = 'unwind'
         let cur_hash = self.sysroot_compute_hash(src_dir, &rustc_version)?;
         if self.sysroot_read_hash() == Some(cur_hash) {
             // Already done!
-            return Ok(());
+            return Ok(SysrootStatus::AlreadyCached);
+        }
+
+        // A build is required, so we run the when-build-required function if one was set.
+        if let Some(when_build_required) = self.when_build_required.take() {
+            when_build_required();
         }
 
         // Prepare a workspace for cargo
@@ -493,6 +517,6 @@ panic = 'unwind'
         .context("failed to create target directory")?;
         fs::rename(staging_dir.path(), sysroot_lib_dir).context("failed installing sysroot")?;
 
-        Ok(())
+        Ok(SysrootStatus::SysrootBuilt)
     }
 }
