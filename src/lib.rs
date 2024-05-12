@@ -1,5 +1,5 @@
 //! Offers an easy way to build a rustc sysroot from source.
-
+#![warn(missing_docs)]
 // We prefer to always borrow rather than having to figure out whether we can move or borrow (which
 // depends on whether the variable is used again later).
 #![allow(clippy::needless_borrows_for_generic_args)]
@@ -123,6 +123,7 @@ pub enum BuildMode {
 }
 
 impl BuildMode {
+    /// Returns a string with the cargo command matching this build mode.
     pub fn as_str(&self) -> &str {
         use BuildMode::*;
         match self {
