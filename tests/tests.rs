@@ -74,10 +74,11 @@ fn host() {
 fn cross() {
     let rustc_version = VersionMeta::for_command(Command::new("rustc")).unwrap();
 
+    // Cover three CPU architectures and three OSes.
     for target in [
         "i686-unknown-linux-gnu",
         "aarch64-apple-darwin",
-        "i686-pc-windows-msvc",
+        "x86_64-pc-windows-msvc",
     ] {
         test_sysroot_build(target, BuildMode::Check, &rustc_version);
     }
