@@ -9,7 +9,6 @@ use std::env;
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::hash::{Hash, Hasher};
-use std::ops::Not;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -20,8 +19,7 @@ use walkdir::WalkDir;
 /// The name of the profile used for buliding the sysroot.
 const DEFAULT_SYSROOT_PROFILE: &str = "custom_sysroot";
 
-/// Returns where the given rustc stores its sysroot source code.
-pub fn rustc_sysroot_src(mut rustc: Command) -> Result<PathBuf> {
+fn rustc_sysroot_dir(mut rustc: Command) -> Result<PathBuf> {
     let output = rustc
         .args(["--print", "sysroot"])
         .output()
@@ -32,10 +30,21 @@ pub fn rustc_sysroot_src(mut rustc: Command) -> Result<PathBuf> {
             String::from_utf8_lossy(&output.stderr).trim_end()
         );
     }
-
     let sysroot =
         std::str::from_utf8(&output.stdout).context("sysroot folder is not valid UTF-8")?;
-    let sysroot = Path::new(sysroot.trim_end_matches('\n'));
+    let sysroot = PathBuf::from(sysroot.trim_end_matches('\n'));
+    if !sysroot.is_dir() {
+        bail!(
+            "sysroot directory `{}` is not a directory",
+            sysroot.display()
+        );
+    }
+    Ok(sysroot)
+}
+
+/// Returns where the given rustc stores its sysroot source code.
+pub fn rustc_sysroot_src(rustc: Command) -> Result<PathBuf> {
+    let sysroot = rustc_sysroot_dir(rustc)?;
     let rustc_src = sysroot
         .join("lib")
         .join("rustlib")
@@ -85,6 +94,43 @@ fn make_writeable(p: &Path) -> Result<()> {
     let mut perms = fs::metadata(p)?.permissions();
     perms.set_readonly(false);
     fs::set_permissions(p, perms).context("cannot set permissions")?;
+    Ok(())
+}
+
+/// Determine the location of the sysroot that is distributed with rustc.
+fn dist_sysroot() -> Result<PathBuf> {
+    let cmd = env::var_os("RUSTC").unwrap_or_else(|| OsString::from("rustc"));
+    rustc_sysroot_dir(Command::new(cmd))
+}
+
+#[cfg(unix)]
+fn symlink_or_copy_dir(src: &Path, dst: &Path) -> Result<()> {
+    std::os::unix::fs::symlink(src, dst)?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn symlink_or_copy_dir(src: &Path, dst: &Path) -> Result<()> {
+    for e in WalkDir::new(src) {
+        // This is only an error when there's some sort of intermittent IO error
+        // during iteration.
+        // see https://doc.rust-lang.org/std/fs/struct.ReadDir.html
+        let e = e?;
+        let metadata = e.metadata()?;
+
+        let src_file = e.path();
+        let relative_path = src_file.strip_prefix(src)?;
+        let dst_file = dst.join(relative_path);
+
+        if metadata.is_dir() {
+            // ensure the destination directory exists
+            fs::create_dir_all(&dst_file)?;
+        } else {
+            // copy the file
+            fs::copy(&src_file, &dst_file)?;
+        };
+    }
+
     Ok(())
 }
 
@@ -234,6 +280,9 @@ impl<'a> SysrootBuilder<'a> {
     }
 
     /// Sets the cargo command to call.
+    ///
+    /// This will be invoked with `output()`, so if stdout/stderr should be inherited
+    /// then that needs to be set explicitly.
     pub fn cargo(mut self, cargo: Command) -> Self {
         self.cargo = Some(cargo);
         self
@@ -268,7 +317,7 @@ impl<'a> SysrootBuilder<'a> {
         }
     }
 
-    fn target_sysroot_dir(&self) -> PathBuf {
+    fn sysroot_target_dir(&self) -> PathBuf {
         self.sysroot_dir
             .join("lib")
             .join("rustlib")
@@ -294,7 +343,7 @@ impl<'a> SysrootBuilder<'a> {
     }
 
     fn sysroot_read_hash(&self) -> Option<u64> {
-        let hash_file = self.target_sysroot_dir().join("lib").join(HASH_FILE_NAME);
+        let hash_file = self.sysroot_target_dir().join(HASH_FILE_NAME);
         let hash = fs::read_to_string(&hash_file).ok()?;
         hash.parse().ok()
     }
@@ -407,7 +456,7 @@ panic = 'unwind'
                 src_dir
             );
         }
-        let sysroot_lib_dir = self.target_sysroot_dir().join("lib");
+        let sysroot_target_dir = self.sysroot_target_dir();
         let target_name = self.target_name().to_owned();
         let cargo = self.cargo.take().unwrap_or_else(|| {
             Command::new(env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo")))
@@ -470,19 +519,26 @@ panic = 'unwind'
         // <https://github.com/rust-lang/rust/blob/c8e12cc8bf0de646234524924f39c85d9f3c7c37/src/bootstrap/builder.rs#L1613>.
         cmd.env("__CARGO_DEFAULT_LIB_METADATA", "rustc-build-sysroot");
 
-        if cmd
-            .status()
-            .unwrap_or_else(|_| panic!("failed to execute cargo for sysroot build"))
-            .success()
-            .not()
-        {
-            bail!("sysroot build failed");
+        let output = cmd
+            .output()
+            .context("failed to execute cargo for sysroot build")?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.is_empty() {
+                bail!("sysroot build failed");
+            } else {
+                bail!("sysroot build failed; stderr:\n{}", stderr);
+            }
         }
 
-        // Copy the output to a staging dir (so that we can do the final installation atomically.)
+        // Create a staging dir that will become the target sysroot dir (so that we can do the final
+        // installation atomically).
         fs::create_dir_all(&self.sysroot_dir).context("failed to create sysroot dir")?; // TempDir expects the parent to already exist
         let staging_dir =
             TempDir::new_in(&self.sysroot_dir).context("failed to create staging dir")?;
+        // Copy the output to `$staging/lib`.
+        let staging_lib_dir = staging_dir.path().join("lib");
+        fs::create_dir(&staging_lib_dir).context("faiked to create staging/lib dir")?;
         let out_dir = build_target_dir
             .join(&target_name)
             .join(DEFAULT_SYSROOT_PROFILE)
@@ -494,8 +550,30 @@ panic = 'unwind'
                 "cargo out dir must not contain directories"
             );
             let entry = entry.path();
-            fs::copy(&entry, staging_dir.path().join(entry.file_name().unwrap()))
+            fs::copy(&entry, staging_lib_dir.join(entry.file_name().unwrap()))
                 .context("failed to copy cargo out file")?;
+        }
+        // If we are doing a full build, copy any other files and directories that need copying from
+        // the original sysroot.
+        if matches!(self.mode, BuildMode::Build) {
+            let extra_copy_paths = &["bin"];
+            let dist_sysroot_target_dir = dist_sysroot()?
+                .join("lib")
+                .join("rustlib")
+                .join(&target_name);
+            for path in extra_copy_paths {
+                let src = dist_sysroot_target_dir.join(path);
+                if src.exists() {
+                    let dst = staging_dir.path().join(path);
+                    symlink_or_copy_dir(&src, &dst).with_context(|| {
+                        format!(
+                            "failed to symlink/copy `{src}` to `{dst}`",
+                            src = src.display(),
+                            dst = dst.display(),
+                        )
+                    })?;
+                }
+            }
         }
 
         // Write the hash file (into the staging dir).
@@ -506,17 +584,13 @@ panic = 'unwind'
         .context("failed to write hash file")?;
 
         // Atomic copy to final destination via rename.
-        if sysroot_lib_dir.exists() {
+        if sysroot_target_dir.exists() {
             // Remove potentially outdated files.
-            fs::remove_dir_all(&sysroot_lib_dir).context("failed to clean sysroot target dir")?;
+            fs::remove_dir_all(&sysroot_target_dir)
+                .context("failed to clean sysroot target dir")?;
         }
-        fs::create_dir_all(
-            sysroot_lib_dir
-                .parent()
-                .expect("target/lib dir must have a parent"),
-        )
-        .context("failed to create target directory")?;
-        fs::rename(staging_dir.path(), sysroot_lib_dir).context("failed installing sysroot")?;
+        fs::create_dir_all(&sysroot_target_dir).context("failed to create target directory")?;
+        fs::rename(staging_dir.path(), sysroot_target_dir).context("failed installing sysroot")?;
 
         Ok(SysrootStatus::SysrootBuilt)
     }
