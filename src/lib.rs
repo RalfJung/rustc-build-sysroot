@@ -589,7 +589,9 @@ panic = 'unwind'
             fs::remove_dir_all(&sysroot_target_dir)
                 .context("failed to clean sysroot target dir")?;
         }
-        fs::create_dir_all(&sysroot_target_dir).context("failed to create target directory")?;
+        // Create the *parent* directroy so we can move into it.
+        fs::create_dir_all(&sysroot_target_dir.parent().unwrap())
+            .context("failed to create target directory")?;
         fs::rename(staging_dir.path(), sysroot_target_dir).context("failed installing sysroot")?;
 
         Ok(SysrootStatus::SysrootBuilt)
