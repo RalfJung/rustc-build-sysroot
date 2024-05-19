@@ -9,7 +9,6 @@ use std::env;
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::hash::{Hash, Hasher};
-use std::ops::Not;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -35,7 +34,10 @@ fn rustc_sysroot_dir(mut rustc: Command) -> Result<PathBuf> {
         std::str::from_utf8(&output.stdout).context("sysroot folder is not valid UTF-8")?;
     let sysroot = PathBuf::from(sysroot.trim_end_matches('\n'));
     if !sysroot.is_dir() {
-        bail!("sysroot directory `{}` is not a directory", sysroot.display());
+        bail!(
+            "sysroot directory `{}` is not a directory",
+            sysroot.display()
+        );
     }
     Ok(sysroot)
 }
@@ -278,6 +280,9 @@ impl<'a> SysrootBuilder<'a> {
     }
 
     /// Sets the cargo command to call.
+    ///
+    /// This will be invoked with `output()`, so if stdout/stderr should be inherited
+    /// then that needs to be set explicitly.
     pub fn cargo(mut self, cargo: Command) -> Self {
         self.cargo = Some(cargo);
         self
@@ -514,13 +519,16 @@ panic = 'unwind'
         // <https://github.com/rust-lang/rust/blob/c8e12cc8bf0de646234524924f39c85d9f3c7c37/src/bootstrap/builder.rs#L1613>.
         cmd.env("__CARGO_DEFAULT_LIB_METADATA", "rustc-build-sysroot");
 
-        if cmd
-            .status()
-            .unwrap_or_else(|_| panic!("failed to execute cargo for sysroot build"))
-            .success()
-            .not()
-        {
-            bail!("sysroot build failed");
+        let output = cmd
+            .output()
+            .context("failed to execute cargo for sysroot build")?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.is_empty() {
+                bail!("sysroot build failed");
+            } else {
+                bail!("sysroot build failed; stderr:\n{}", stderr);
+            }
         }
 
         // Create a staging dir that will become the target sysroot dir (so that we can do the final

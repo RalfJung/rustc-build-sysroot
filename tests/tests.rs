@@ -17,14 +17,9 @@ fn run(cmd: &mut Command) {
 
 fn build_sysroot(b: SysrootBuilder) {
     let src_dir = rustc_sysroot_src(Command::new("rustc")).unwrap();
-    b.cargo({
-        let mut cmd = Command::new("cargo");
-        cmd.stdout(process::Stdio::null());
-        cmd.stderr(process::Stdio::null());
-        cmd
-    })
-    .build_from_source(&src_dir)
-    .unwrap();
+    b.cargo(Command::new("cargo"))
+        .build_from_source(&src_dir)
+        .unwrap();
 }
 
 fn test_sysroot_build(target: &str, mode: BuildMode, rustc_version: &VersionMeta) {
