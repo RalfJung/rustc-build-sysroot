@@ -553,28 +553,6 @@ panic = 'unwind'
             fs::copy(&entry, staging_lib_dir.join(entry.file_name().unwrap()))
                 .context("failed to copy cargo out file")?;
         }
-        // If we are doing a full build, copy any other files and directories that need copying from
-        // the original sysroot.
-        if matches!(self.mode, BuildMode::Build) {
-            let extra_copy_paths = &["bin"];
-            let dist_sysroot_target_dir = dist_sysroot()?
-                .join("lib")
-                .join("rustlib")
-                .join(&target_name);
-            for path in extra_copy_paths {
-                let src = dist_sysroot_target_dir.join(path);
-                if src.exists() {
-                    let dst = staging_dir.path().join(path);
-                    symlink_or_copy_dir(&src, &dst).with_context(|| {
-                        format!(
-                            "failed to symlink/copy `{src}` to `{dst}`",
-                            src = src.display(),
-                            dst = dst.display(),
-                        )
-                    })?;
-                }
-            }
-        }
 
         // Write the hash file (into the staging dir).
         fs::write(
