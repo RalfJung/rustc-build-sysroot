@@ -97,43 +97,6 @@ fn make_writeable(p: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Determine the location of the sysroot that is distributed with rustc.
-fn dist_sysroot() -> Result<PathBuf> {
-    let cmd = env::var_os("RUSTC").unwrap_or_else(|| OsString::from("rustc"));
-    rustc_sysroot_dir(Command::new(cmd))
-}
-
-#[cfg(unix)]
-fn symlink_or_copy_dir(src: &Path, dst: &Path) -> Result<()> {
-    std::os::unix::fs::symlink(src, dst)?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn symlink_or_copy_dir(src: &Path, dst: &Path) -> Result<()> {
-    for e in WalkDir::new(src) {
-        // This is only an error when there's some sort of intermittent IO error
-        // during iteration.
-        // see https://doc.rust-lang.org/std/fs/struct.ReadDir.html
-        let e = e?;
-        let metadata = e.metadata()?;
-
-        let src_file = e.path();
-        let relative_path = src_file.strip_prefix(src)?;
-        let dst_file = dst.join(relative_path);
-
-        if metadata.is_dir() {
-            // ensure the destination directory exists
-            fs::create_dir_all(&dst_file)?;
-        } else {
-            // copy the file
-            fs::copy(&src_file, &dst_file)?;
-        };
-    }
-
-    Ok(())
-}
-
 /// Hash the metadata and size of every file in a directory, recursively.
 fn hash_recursive(path: &Path, hasher: &mut DefaultHasher) -> Result<()> {
     // We sort the entries to ensure a stable hash.
