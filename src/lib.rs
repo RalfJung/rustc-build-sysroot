@@ -443,20 +443,31 @@ panic = 'unwind'
 
         // Prepare a workspace for cargo
         let build_dir = TempDir::new().context("failed to create tempdir")?;
+        // Cargo.lock
         let lock_file = build_dir.path().join("Cargo.lock");
-        let manifest_file = build_dir.path().join("Cargo.toml");
-        let lib_file = build_dir.path().join("lib.rs");
-        fs::copy(
-            src_dir
-                .parent()
-                .expect("src_dir must have a parent")
-                .join("Cargo.lock"),
-            &lock_file,
-        )
-        .context("failed to copy lockfile from sysroot source")?;
+        let lock_file_src = {
+            // Since <https://github.com/rust-lang/rust/pull/128534>, the lock file
+            // lives inside the src_dir.
+            let new_lock_file_name = src_dir.join("Cargo.lock");
+            if new_lock_file_name.exists() {
+                new_lock_file_name
+            } else {
+                // Previously, the lock file lived one folder up.
+                src_dir
+                    .parent()
+                    .expect("src_dir must have a parent")
+                    .join("Cargo.lock")
+            }
+        };
+        fs::copy(lock_file_src, &lock_file)
+            .context("failed to copy lockfile from sysroot source")?;
         make_writeable(&lock_file).context("failed to make lockfile writeable")?;
+        // Cargo.toml
+        let manifest_file = build_dir.path().join("Cargo.toml");
         let manifest = self.gen_manifest(src_dir);
         fs::write(&manifest_file, manifest.as_bytes()).context("failed to write manifest file")?;
+        // lib.rs
+        let lib_file = build_dir.path().join("lib.rs");
         let lib = match self.config {
             SysrootConfig::NoStd => r#"#![no_std]"#,
             SysrootConfig::WithStd { .. } => "",
