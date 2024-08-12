@@ -507,7 +507,10 @@ panic = 'unwind'
         }
 
         // Create a staging dir that will become the target sysroot dir (so that we can do the final
-        // installation atomically).
+        // installation atomically). By creating this directory inside `sysroot_dir`, we ensure that
+        // it is on the same file system (so `fs::rename`) works. This also means that the mtime of
+        // `sysroot_dir` gets updated, which rustc bootstrap relies on as a signal that a rebuild
+        // happened.
         fs::create_dir_all(&self.sysroot_dir).context("failed to create sysroot dir")?; // TempDir expects the parent to already exist
         let staging_dir =
             TempDir::new_in(&self.sysroot_dir).context("failed to create staging dir")?;
