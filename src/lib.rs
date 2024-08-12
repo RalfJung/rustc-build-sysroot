@@ -390,6 +390,7 @@ path = {src_dir_workspace_std:?}
 authors = ["rustc-build-sysroot"]
 name = "custom-local-sysroot"
 version = "0.0.0"
+edition = "2018"
 
 [lib]
 # empty dummy, just so that things are being built
