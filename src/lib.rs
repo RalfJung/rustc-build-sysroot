@@ -186,13 +186,6 @@ impl<'a> SysrootBuilder<'a> {
         let default_flags = &[
             // This is usually set by bootstrap via `RUSTC_FORCE_UNSTABLE`.
             "-Zforce-unstable-if-unmarked",
-            // Don't fail when there are lints.
-            // The whole point of this crate is to build the standard library in nonstandard
-            // configurations, which may trip lints due to untested combinations of cfgs.
-            // This matches what cargo does for dependencies.
-            // We cannot set `--cap-lints=allow` because Cargo needs to parse warnings to understand the
-            // output of --print=file-names for crate-types that the target does not support.
-            "--cap-lints=warn",
             // We allow `unexpected_cfgs` as the sysroot has tons of custom `cfg` that rustc does not know about.
             "-Aunexpected_cfgs",
         ];
