@@ -480,8 +480,10 @@ panic = 'unwind'
         // Set rustflags.
         cmd.env("CARGO_ENCODED_RUSTFLAGS", encode_rustflags(&self.rustflags));
         // Make sure the results end up where we expect them.
+        // Cargo provides multiple ways to adjust this and we need to overwrite all of them.
         let build_target_dir = build_dir.path().join("target");
         cmd.env("CARGO_TARGET_DIR", &build_target_dir);
+        cmd.env("CARGO_BUILD_BUILD_DIR", &build_target_dir);
         // To avoid metadata conflicts, we need to inject some custom data into the crate hash.
         // bootstrap does the same at
         // <https://github.com/rust-lang/rust/blob/c8e12cc8bf0de646234524924f39c85d9f3c7c37/src/bootstrap/builder.rs#L1613>.
