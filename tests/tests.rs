@@ -103,7 +103,7 @@ fn json_target() {
         "linker-is-gnu": true,
         "llvm-target": "avr-unknown-unknown",
         "no-compiler-rt": true,
-        "os": "unknown",
+        "os": "none",
         "position-independent-executables": false,
         "exe-suffix": ".elf",
         "eh-frame-header": false,
