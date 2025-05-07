@@ -91,32 +91,30 @@ fn no_std() {
 
 #[test]
 fn json_target() {
-    // Example taken from https://book.avr-rust.com/005.1-the-target-specification-json-file.html
     let target = r#"{
-        "arch": "avr",
-        "cpu": "atmega328p",
-        "data-layout": "e-P1-p:16:8-i8:8-i16:8-i32:8-i64:8-f32:8-f64:8-n8-a:8",
-        "env": "",
-        "executables": true,
-        "linker": "avr-gcc",
-        "linker-flavor": "gcc",
-        "linker-is-gnu": true,
-        "llvm-target": "avr-unknown-unknown",
-        "no-compiler-rt": true,
-        "os": "none",
-        "position-independent-executables": false,
-        "exe-suffix": ".elf",
-        "eh-frame-header": false,
-        "pre-link-args": {
-          "gcc": ["-mmcu=atmega328p"]
-        },
-        "late-link-args": {
-          "gcc": ["-lgcc"]
-        },
-        "target-c-int-width": "16",
+        "llvm-target": "x86_64-unknown-none",
         "target-endian": "little",
-        "target-pointer-width": "16",
-        "vendor": "unknown"
+        "target-pointer-width": "64",
+        "target-c-int-width": "32",
+        "data-layout": "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
+        "arch": "x86_64",
+        "os": "none",
+        "env": "",
+        "vendor": "unknown",
+        "linker": "rust-lld",
+        "linker-flavor": "gnu-lld",
+        "rustc-abi": "x86-softfloat",
+        "features": "-mmx,-sse,-sse2,-sse3,-ssse3,-sse4.1,-sse4.2,-avx,-avx2,+soft-float",
+        "dynamic-linking": false,
+        "executables": true,
+        "relocation-model": "static",
+        "code-model": "kernel",
+        "disable-redzone": true,
+        "frame-pointer": "always",
+        "exe-suffix": "",
+        "has-rpath": false,
+        "no-default-libraries": true,
+        "position-independent-executables": false
     }"#;
 
     let sysroot_dir = tempdir().unwrap();
