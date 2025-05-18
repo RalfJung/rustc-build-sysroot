@@ -435,6 +435,18 @@ panic = 'unwind'
             when_build_required();
         }
 
+        // Remove potentially outdated files. Do this via rename to make it atomic.
+        // We do this *before* the step that takes all the time. That means if a bunch of
+        // these builds happen concurrently, then almost certainly this cleanup will happen before
+        // any of them is done, i.e., we only delete outdated files, not new files.
+        // (The delete will happen automatically when `unstaging_dir` gets dropped.)
+        let unstaging_dir =
+            TempDir::new_in(&self.sysroot_dir).context("failed to create un-staging dir")?;
+        let _ = fs::rename(&sysroot_target_dir, &unstaging_dir); // rename may fail if the dir does not exist yet
+                                                                 // Create the *parent* directroy so we can move into it.
+        fs::create_dir_all(&sysroot_target_dir.parent().unwrap())
+            .context("failed to create target directory")?;
+
         // Prepare a workspace for cargo
         let build_dir = TempDir::new().context("failed to create tempdir")?;
         // Cargo.lock
@@ -535,15 +547,13 @@ panic = 'unwind'
         .context("failed to write hash file")?;
 
         // Atomic copy to final destination via rename.
-        if sysroot_target_dir.exists() {
-            // Remove potentially outdated files.
-            fs::remove_dir_all(&sysroot_target_dir)
-                .context("failed to clean sysroot target dir")?;
+        // The rename can fail if there was a concurrent build.
+        if fs::rename(staging_dir.path(), sysroot_target_dir).is_err() {
+            // Ensure that that build is identical to what we were going to do.
+            if self.sysroot_read_hash() != Some(cur_hash) {
+                bail!("detected a concurrent sysroot build with different settings");
+            }
         }
-        // Create the *parent* directroy so we can move into it.
-        fs::create_dir_all(&sysroot_target_dir.parent().unwrap())
-            .context("failed to create target directory")?;
-        fs::rename(staging_dir.path(), sysroot_target_dir).context("failed installing sysroot")?;
 
         Ok(SysrootStatus::SysrootBuilt)
     }
