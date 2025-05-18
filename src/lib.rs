@@ -435,6 +435,10 @@ panic = 'unwind'
             when_build_required();
         }
 
+        // Create the *parent* directroy of what we are going to create, so that we can later move
+        // into it.
+        fs::create_dir_all(&sysroot_target_dir.parent().unwrap())
+            .context("failed to create target directory")?;
         // Remove potentially outdated files. Do this via rename to make it atomic.
         // We do this *before* the step that takes all the time. That means if a bunch of
         // these builds happen concurrently, then almost certainly this cleanup will happen before
@@ -443,9 +447,6 @@ panic = 'unwind'
         let unstaging_dir =
             TempDir::new_in(&self.sysroot_dir).context("failed to create un-staging dir")?;
         let _ = fs::rename(&sysroot_target_dir, &unstaging_dir); // rename may fail if the dir does not exist yet
-                                                                 // Create the *parent* directroy so we can move into it.
-        fs::create_dir_all(&sysroot_target_dir.parent().unwrap())
-            .context("failed to create target directory")?;
 
         // Prepare a workspace for cargo
         let build_dir = TempDir::new().context("failed to create tempdir")?;
