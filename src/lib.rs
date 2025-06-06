@@ -216,20 +216,12 @@ impl<'a> SysrootBuilder<'a> {
     }
 
     /// Appends the given flag.
-    ///
-    /// If no `--cap-lints` argument is configured, we will add `--cap-lints=warn`.
-    /// This emulates the usual behavior of Cargo: Lints are normally capped when building
-    /// dependencies, except that they are not capped when building path dependencies, except that
-    /// path dependencies are still capped if they are part of `-Zbuild-std`.
     pub fn rustflag(mut self, rustflag: impl Into<OsString>) -> Self {
         self.rustflags.push(rustflag.into());
         self
     }
 
     /// Appends the given flags.
-    ///
-    /// If no `--cap-lints` argument is configured, we will add `--cap-lints=warn`. See
-    /// [`SysrootBuilder::rustflag`] for more explanation.
     pub fn rustflags(mut self, rustflags: impl IntoIterator<Item = impl Into<OsString>>) -> Self {
         self.rustflags.extend(rustflags.into_iter().map(Into::into));
         self
