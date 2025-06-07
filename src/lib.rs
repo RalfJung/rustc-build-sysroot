@@ -349,6 +349,8 @@ path = {src_dir_test:?}
             ),
         };
 
+        // HACK: as part of the transition in https://github.com/rust-lang/rust/pull/141993,
+        // we may have to inject another `[patch]` declaration for `compiler-builtins`.
         let builtins_patch = if let Some(path) = builtins_patch_location(src_dir) {
             format!(
                 r#"
