@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
+use regex::Regex;
 use tempfile::TempDir;
 use walkdir::WalkDir;
 
@@ -340,6 +341,20 @@ path = {src_dir_test:?}
             ),
         };
 
+        // HACK: as part of the transition in https://github.com/rust-lang/rust/pull/141993,
+        // we may have to inject another `[patch]` declaration for `compiler-builtins`.
+        let builtins_patch = if let Some(path) = builtins_patch_location(src_dir) {
+            format!(
+                r#"
+[patch.crates-io.compiler_builtins]
+path = {src_dir_workspace_builtins:?}
+            "#,
+                src_dir_workspace_builtins = src_dir.join(path),
+            )
+        } else {
+            String::new()
+        };
+
         // If we include a patch for rustc-std-workspace-std for no_std sysroot builds, we get a
         // warning from Cargo that the patch is unused. If this patching ever breaks that lint will
         // probably be very helpful, so it would be best to not disable it.
@@ -351,6 +366,7 @@ path = {src_dir_test:?}
                 r#"
 [patch.crates-io.rustc-std-workspace-core]
 path = {src_dir_workspace_core:?}
+{builtins_patch}
                 "#,
                 src_dir_workspace_core = src_dir.join("rustc-std-workspace-core"),
             ),
@@ -362,6 +378,7 @@ path = {src_dir_workspace_core:?}
 path = {src_dir_workspace_alloc:?}
 [patch.crates-io.rustc-std-workspace-std]
 path = {src_dir_workspace_std:?}
+{builtins_patch}
                 "#,
                 src_dir_workspace_core = src_dir.join("rustc-std-workspace-core"),
                 src_dir_workspace_alloc = src_dir.join("rustc-std-workspace-alloc"),
@@ -549,5 +566,52 @@ panic = 'unwind'
         }
 
         Ok(SysrootStatus::SysrootBuilt)
+    }
+}
+
+/// If the workspace Cargo.toml needs a `compiler_builtins` patch, return the path
+fn builtins_patch_location(src_dir: &Path) -> Option<String> {
+    // Assume no patch is needed if the workspace Cargo.toml doesn't exist
+    let f = fs::read_to_string(src_dir.join("Cargo.toml")).ok()?;
+
+    // Crudely extract only the patches and see if one exists for `compiler_builtins`
+    let patches = f.split_once("[patch.crates-io]")?.1;
+    let re =
+        Regex::new(r#"(?m)^\s*compiler_builtins\s*=\s*\{.*path\s*=\s*"(?P<path>.*)".*\}"#).unwrap();
+    let path = re.captures(patches)?.name("path").unwrap().as_str();
+    Some(path.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn check_patch_location() {
+        let has_patch = r#"
+            [workspace]
+            # ...
+            [patch.crates-io]
+            other = { path = "foo" }
+            compiler_builtins     = {path = "dir1/dir2"}
+        "#;
+        let no_patch = r#"
+            [workspace]
+            # ...
+            # Dep rather than a patch
+            compiler_builtins = { path = "dir1/dir2" }
+        "#;
+
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("Cargo.toml");
+        fs::write(&f, has_patch).unwrap();
+
+        assert_eq!(
+            builtins_patch_location(dir.path()),
+            Some("dir1/dir2".to_string())
+        );
+
+        fs::write(&f, no_patch).unwrap();
+        assert_eq!(builtins_patch_location(dir.path()), None);
     }
 }
