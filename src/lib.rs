@@ -303,24 +303,24 @@ impl<'a> SysrootBuilder<'a> {
         let crates = match &self.config {
             SysrootConfig::NoStd => format!(
                 r#"
-[dependencies.core]
-path = {src_dir_core:?}
-[dependencies.alloc]
-path = {src_dir_alloc:?}
-[dependencies.compiler_builtins]
-features = ["rustc-dep-of-std", "mem"]
-version = "*"
+                [dependencies.core]
+                path = {src_dir_core:?}
+                [dependencies.alloc]
+                path = {src_dir_alloc:?}
+                [dependencies.compiler_builtins]
+                features = ["rustc-dep-of-std", "mem"]
+                version = "*"
                 "#,
                 src_dir_core = src_dir.join("core"),
                 src_dir_alloc = src_dir.join("alloc"),
             ),
             SysrootConfig::WithStd { std_features } if have_sysroot_crate => format!(
                 r#"
-[dependencies.std]
-features = {std_features:?}
-path = {src_dir_std:?}
-[dependencies.sysroot]
-path = {src_dir_sysroot:?}
+                [dependencies.std]
+                features = {std_features:?}
+                path = {src_dir_std:?}
+                [dependencies.sysroot]
+                path = {src_dir_sysroot:?}
                 "#,
                 std_features = std_features,
                 src_dir_std = src_dir.join("std"),
@@ -329,11 +329,11 @@ path = {src_dir_sysroot:?}
             // Fallback for old rustc where the main crate was `test`, not `sysroot`
             SysrootConfig::WithStd { std_features } => format!(
                 r#"
-[dependencies.std]
-features = {std_features:?}
-path = {src_dir_std:?}
-[dependencies.test]
-path = {src_dir_test:?}
+                [dependencies.std]
+                features = {std_features:?}
+                path = {src_dir_std:?}
+                [dependencies.test]
+                path = {src_dir_test:?}
                 "#,
                 std_features = std_features,
                 src_dir_std = src_dir.join("std"),
@@ -346,9 +346,9 @@ path = {src_dir_test:?}
         let builtins_patch = if let Some(path) = builtins_patch_location(src_dir) {
             format!(
                 r#"
-[patch.crates-io.compiler_builtins]
-path = {src_dir_workspace_builtins:?}
-            "#,
+                [patch.crates-io.compiler_builtins]
+                path = {src_dir_workspace_builtins:?}
+                "#,
                 src_dir_workspace_builtins = src_dir.join(path),
             )
         } else {
@@ -364,21 +364,21 @@ path = {src_dir_workspace_builtins:?}
         let patches = match &self.config {
             SysrootConfig::NoStd => format!(
                 r#"
-[patch.crates-io.rustc-std-workspace-core]
-path = {src_dir_workspace_core:?}
-{builtins_patch}
+                [patch.crates-io.rustc-std-workspace-core]
+                path = {src_dir_workspace_core:?}
+                {builtins_patch}
                 "#,
                 src_dir_workspace_core = src_dir.join("rustc-std-workspace-core"),
             ),
             SysrootConfig::WithStd { .. } => format!(
                 r#"
-[patch.crates-io.rustc-std-workspace-core]
-path = {src_dir_workspace_core:?}
-[patch.crates-io.rustc-std-workspace-alloc]
-path = {src_dir_workspace_alloc:?}
-[patch.crates-io.rustc-std-workspace-std]
-path = {src_dir_workspace_std:?}
-{builtins_patch}
+                [patch.crates-io.rustc-std-workspace-core]
+                path = {src_dir_workspace_core:?}
+                [patch.crates-io.rustc-std-workspace-alloc]
+                path = {src_dir_workspace_alloc:?}
+                [patch.crates-io.rustc-std-workspace-std]
+                path = {src_dir_workspace_std:?}
+                {builtins_patch}
                 "#,
                 src_dir_workspace_core = src_dir.join("rustc-std-workspace-core"),
                 src_dir_workspace_alloc = src_dir.join("rustc-std-workspace-alloc"),
@@ -388,25 +388,25 @@ path = {src_dir_workspace_std:?}
 
         format!(
             r#"
-[package]
-authors = ["rustc-build-sysroot"]
-name = "custom-local-sysroot"
-version = "0.0.0"
-edition = "2018"
+            [package]
+            authors = ["rustc-build-sysroot"]
+            name = "custom-local-sysroot"
+            version = "0.0.0"
+            edition = "2018"
 
-[lib]
-# empty dummy, just so that things are being built
-path = "lib.rs"
+            [lib]
+            # empty dummy, just so that things are being built
+            path = "lib.rs"
 
-[profile.{DEFAULT_SYSROOT_PROFILE}]
-# We inherit from the local release profile, but then overwrite some
-# settings to ensure we still get a working sysroot.
-inherits = "release"
-panic = 'unwind'
+            [profile.{DEFAULT_SYSROOT_PROFILE}]
+            # We inherit from the local release profile, but then overwrite some
+            # settings to ensure we still get a working sysroot.
+            inherits = "release"
+            panic = 'unwind'
 
-{crates}
+            {crates}
 
-{patches}
+            {patches}
             "#
         )
     }
