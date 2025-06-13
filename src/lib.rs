@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
-use regex::Regex;
 use tempfile::TempDir;
+use toml::{Table, Value};
 use walkdir::WalkDir;
 
 /// The name of the profile used for buliding the sysroot.
@@ -303,24 +303,24 @@ impl<'a> SysrootBuilder<'a> {
         let crates = match &self.config {
             SysrootConfig::NoStd => format!(
                 r#"
-[dependencies.core]
-path = {src_dir_core:?}
-[dependencies.alloc]
-path = {src_dir_alloc:?}
-[dependencies.compiler_builtins]
-features = ["rustc-dep-of-std", "mem"]
-version = "*"
+                [dependencies.core]
+                path = {src_dir_core:?}
+                [dependencies.alloc]
+                path = {src_dir_alloc:?}
+                [dependencies.compiler_builtins]
+                features = ["rustc-dep-of-std", "mem"]
+                version = "*"
                 "#,
                 src_dir_core = src_dir.join("core"),
                 src_dir_alloc = src_dir.join("alloc"),
             ),
             SysrootConfig::WithStd { std_features } if have_sysroot_crate => format!(
                 r#"
-[dependencies.std]
-features = {std_features:?}
-path = {src_dir_std:?}
-[dependencies.sysroot]
-path = {src_dir_sysroot:?}
+                [dependencies.std]
+                features = {std_features:?}
+                path = {src_dir_std:?}
+                [dependencies.sysroot]
+                path = {src_dir_sysroot:?}
                 "#,
                 std_features = std_features,
                 src_dir_std = src_dir.join("std"),
@@ -329,30 +329,16 @@ path = {src_dir_sysroot:?}
             // Fallback for old rustc where the main crate was `test`, not `sysroot`
             SysrootConfig::WithStd { std_features } => format!(
                 r#"
-[dependencies.std]
-features = {std_features:?}
-path = {src_dir_std:?}
-[dependencies.test]
-path = {src_dir_test:?}
+                [dependencies.std]
+                features = {std_features:?}
+                path = {src_dir_std:?}
+                [dependencies.test]
+                path = {src_dir_test:?}
                 "#,
                 std_features = std_features,
                 src_dir_std = src_dir.join("std"),
                 src_dir_test = src_dir.join("test"),
             ),
-        };
-
-        // HACK: as part of the transition in https://github.com/rust-lang/rust/pull/141993,
-        // we may have to inject another `[patch]` declaration for `compiler-builtins`.
-        let builtins_patch = if let Some(path) = builtins_patch_location(src_dir) {
-            format!(
-                r#"
-[patch.crates-io.compiler_builtins]
-path = {src_dir_workspace_builtins:?}
-            "#,
-                src_dir_workspace_builtins = src_dir.join(path),
-            )
-        } else {
-            String::new()
         };
 
         // If we include a patch for rustc-std-workspace-std for no_std sysroot builds, we get a
@@ -361,54 +347,59 @@ path = {src_dir_workspace_builtins:?}
         // Currently the only user of rustc-std-workspace-alloc is std_detect, which is only used
         // by std. So we only need to patch rustc-std-workspace-core in no_std sysroot builds, or
         // that patch also produces a warning.
-        let patches = match &self.config {
-            SysrootConfig::NoStd => format!(
-                r#"
-[patch.crates-io.rustc-std-workspace-core]
-path = {src_dir_workspace_core:?}
-{builtins_patch}
-                "#,
-                src_dir_workspace_core = src_dir.join("rustc-std-workspace-core"),
-            ),
-            SysrootConfig::WithStd { .. } => format!(
-                r#"
-[patch.crates-io.rustc-std-workspace-core]
-path = {src_dir_workspace_core:?}
-[patch.crates-io.rustc-std-workspace-alloc]
-path = {src_dir_workspace_alloc:?}
-[patch.crates-io.rustc-std-workspace-std]
-path = {src_dir_workspace_std:?}
-{builtins_patch}
-                "#,
-                src_dir_workspace_core = src_dir.join("rustc-std-workspace-core"),
-                src_dir_workspace_alloc = src_dir.join("rustc-std-workspace-alloc"),
-                src_dir_workspace_std = src_dir.join("rustc-std-workspace-std"),
-            ),
+        let unneeded_patches = match &self.config {
+            SysrootConfig::NoStd => &["rustc-std-workspace-alloc", "rustc-std-workspace-std"][..],
+            SysrootConfig::WithStd { .. } => &[][..],
         };
 
-        format!(
+        let mut patches = extract_patches(src_dir);
+        for (repo, repo_patches) in &mut patches {
+            let repo_patches = repo_patches
+                .as_table_mut()
+                .unwrap_or_else(|| panic!("source `{}` is not a table", repo));
+
+            // Remove any patches that we don't need
+            for krate in unneeded_patches {
+                let _ = repo_patches.remove(*krate);
+            }
+
+            // Remap paths to be relative to the source directory.
+            for (krate, patch) in repo_patches {
+                if let Some(path) = patch.get_mut("path") {
+                    let curr_path = path
+                        .as_str()
+                        .unwrap_or_else(|| panic!("`{}.path` is not a string", krate));
+
+                    *path = Value::String(src_dir.join(curr_path).display().to_string());
+                }
+            }
+        }
+
+        let mut table: Table = toml::from_str(&format!(
             r#"
-[package]
-authors = ["rustc-build-sysroot"]
-name = "custom-local-sysroot"
-version = "0.0.0"
-edition = "2018"
+            [package]
+            authors = ["rustc-build-sysroot"]
+            name = "custom-local-sysroot"
+            version = "0.0.0"
+            edition = "2018"
 
-[lib]
-# empty dummy, just so that things are being built
-path = "lib.rs"
+            [lib]
+            # empty dummy, just so that things are being built
+            path = "lib.rs"
 
-[profile.{DEFAULT_SYSROOT_PROFILE}]
-# We inherit from the local release profile, but then overwrite some
-# settings to ensure we still get a working sysroot.
-inherits = "release"
-panic = 'unwind'
+            [profile.{DEFAULT_SYSROOT_PROFILE}]
+            # We inherit from the local release profile, but then overwrite some
+            # settings to ensure we still get a working sysroot.
+            inherits = "release"
+            panic = 'unwind'
 
-{crates}
-
-{patches}
+            {crates}
             "#
-        )
+        ))
+        .expect("failed to parse toml");
+
+        table.insert("patch".to_owned(), patches.into());
+        toml::to_string(&table).expect("failed to serialize to toml")
     }
 
     /// Build the `self` sysroot from the given sources.
@@ -569,49 +560,106 @@ panic = 'unwind'
     }
 }
 
-/// If the workspace Cargo.toml needs a `compiler_builtins` patch, return the path
-fn builtins_patch_location(src_dir: &Path) -> Option<String> {
+/// Collect the patches from the sysroot's workspace `Cargo.toml`.
+fn extract_patches(src_dir: &Path) -> Table {
     // Assume no patch is needed if the workspace Cargo.toml doesn't exist
-    let f = fs::read_to_string(src_dir.join("Cargo.toml")).ok()?;
-
-    // Crudely extract only the patches and see if one exists for `compiler_builtins`
-    let patches = f.split_once("[patch.crates-io]")?.1;
-    let re =
-        Regex::new(r#"(?m)^\s*compiler_builtins\s*=\s*\{.*path\s*=\s*"(?P<path>.*)".*\}"#).unwrap();
-    let path = re.captures(patches)?.name("path").unwrap().as_str();
-    Some(path.to_string())
+    let workspace_manifest = src_dir.join("Cargo.toml");
+    let f = fs::read_to_string(&workspace_manifest).unwrap_or_else(|e| {
+        panic!(
+            "unable to read workspace manifest at `{}`: {}",
+            workspace_manifest.display(),
+            e
+        )
+    });
+    let mut t: Table = toml::from_str(&f).expect("invalid sysroot workspace Cargo.toml");
+    // We only care about the patch table.
+    t.remove("patch")
+        .map(|v| match v {
+            Value::Table(map) => map,
+            _ => panic!("`patch` is not a table"),
+        })
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn check_patch_location() {
-        let has_patch = r#"
+    /// Build a manifest for inspecting, returning the manifest and a source directory.
+    fn setup_manifest_test(config: SysrootConfig) -> (Table, TempDir) {
+        let workspace_toml = r#"
             [workspace]
-            # ...
+            foo = "bar"
+
             [patch.crates-io]
-            other = { path = "foo" }
-            compiler_builtins     = {path = "dir1/dir2"}
-        "#;
-        let no_patch = r#"
-            [workspace]
-            # ...
-            # Dep rather than a patch
-            compiler_builtins = { path = "dir1/dir2" }
+            foo = { path = "bar" }
+            rustc-std-workspace-core = { path = "core" }
+            rustc-std-workspace-alloc = { path = "alloc" }
+            rustc-std-workspace-std = { path = "std" }
         "#;
 
-        let dir = tempfile::tempdir().unwrap();
-        let f = dir.path().join("Cargo.toml");
-        fs::write(&f, has_patch).unwrap();
+        let sysroot = tempfile::tempdir().unwrap(); // dummy sysroot dir, shouldn't be written
+        let src_dir = tempfile::tempdir().unwrap();
+        let f = src_dir.path().join("Cargo.toml");
+        fs::write(&f, workspace_toml).unwrap();
 
-        assert_eq!(
-            builtins_patch_location(dir.path()),
-            Some("dir1/dir2".to_string())
+        let builder = SysrootBuilder::new(sysroot.path(), "sometarget").sysroot_config(config);
+        let manifest: Table = toml::from_str(&builder.gen_manifest(src_dir.path())).unwrap();
+        (manifest, src_dir)
+    }
+
+    /// Check that a crate's patch is set to the given path, or that it doesn't exist if `None`.
+    #[track_caller]
+    fn check_patch_path(manifest: &Table, krate: &str, path: Option<&Path>) {
+        let patches = &manifest["patch"]["crates-io"];
+        match path {
+            Some(path) => assert_eq!(
+                &patches[krate]["path"].as_str().unwrap(),
+                &path.to_str().unwrap()
+            ),
+            None => assert!(patches.get(krate).is_none()),
+        }
+    }
+
+    #[test]
+    fn check_patches_no_std() {
+        let (manifest, src_dir) = setup_manifest_test(SysrootConfig::NoStd);
+
+        // Ensure that we use the manifest's paths but mapped to the source directory
+        check_patch_path(&manifest, "foo", Some(&src_dir.path().join("bar")));
+        check_patch_path(
+            &manifest,
+            "rustc-std-workspace-core",
+            Some(&src_dir.path().join("core")),
         );
 
-        fs::write(&f, no_patch).unwrap();
-        assert_eq!(builtins_patch_location(dir.path()), None);
+        // For `NoStd`, we shouldn't get the alloc and std patches.
+        check_patch_path(&manifest, "rustc-std-workspace-alloc", None);
+        check_patch_path(&manifest, "rustc-std-workspace-std", None);
+    }
+
+    #[test]
+    fn check_patches_with_std() {
+        let (manifest, src_dir) = setup_manifest_test(SysrootConfig::WithStd {
+            std_features: Vec::new(),
+        });
+
+        // For `WithStd`, we should get all patches.
+        check_patch_path(&manifest, "foo", Some(&src_dir.path().join("bar")));
+        check_patch_path(
+            &manifest,
+            "rustc-std-workspace-core",
+            Some(&src_dir.path().join("core")),
+        );
+        check_patch_path(
+            &manifest,
+            "rustc-std-workspace-alloc",
+            Some(&src_dir.path().join("alloc")),
+        );
+        check_patch_path(
+            &manifest,
+            "rustc-std-workspace-std",
+            Some(&src_dir.path().join("std")),
+        );
     }
 }
