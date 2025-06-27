@@ -360,7 +360,7 @@ impl<'a> SysrootBuilder<'a> {
 
             // Remove any patches that we don't need
             for krate in unneeded_patches {
-                let _ = repo_patches.remove(*krate);
+                repo_patches.remove(*krate);
             }
 
             // Remap paths to be relative to the source directory.
