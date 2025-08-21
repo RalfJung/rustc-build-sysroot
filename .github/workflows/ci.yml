@@ -18,7 +18,7 @@ jobs:
         rust:
           - nightly
           # Check a ~3 months old nightly as "oldest supported version"
-          - nightly-2025-01-01
+          - nightly-2025-05-01
         # We want to run all of the above on Linux, macOS, windows-msvc, windows-gnu.
         # The semantics of combining `include` with other things in GHA are very strange
         # so this seems like the best way of doing that.
