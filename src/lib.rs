@@ -299,7 +299,6 @@ impl<'a> SysrootBuilder<'a> {
 
     /// Generate the contents of the manifest file for the sysroot build.
     fn gen_manifest(&self, src_dir: &Path) -> String {
-        let have_sysroot_crate = src_dir.join("sysroot").exists();
         let have_builtins_crate = src_dir.join("compiler-builtins").exists();
         let crates = match &self.config {
             // As long as the sysroot has a patch for compiler_builtins, we need to include it in the
@@ -332,7 +331,7 @@ impl<'a> SysrootBuilder<'a> {
                 src_dir_core = src_dir.join("core"),
                 src_dir_alloc = src_dir.join("alloc"),
             ),
-            SysrootConfig::WithStd { std_features } if have_sysroot_crate => format!(
+            SysrootConfig::WithStd { std_features } => format!(
                 r#"
                 [dependencies.std]
                 features = {std_features:?}
@@ -343,19 +342,6 @@ impl<'a> SysrootBuilder<'a> {
                 std_features = std_features,
                 src_dir_std = src_dir.join("std"),
                 src_dir_sysroot = src_dir.join("sysroot"),
-            ),
-            // Fallback for old rustc where the main crate was `test`, not `sysroot`
-            SysrootConfig::WithStd { std_features } => format!(
-                r#"
-                [dependencies.std]
-                features = {std_features:?}
-                path = {src_dir_std:?}
-                [dependencies.test]
-                path = {src_dir_test:?}
-                "#,
-                std_features = std_features,
-                src_dir_std = src_dir.join("std"),
-                src_dir_test = src_dir.join("test"),
             ),
         };
 
