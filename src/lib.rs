@@ -300,10 +300,11 @@ impl<'a> SysrootBuilder<'a> {
     /// Generate the contents of the manifest file for the sysroot build.
     fn gen_manifest(&self, src_dir: &Path) -> String {
         let have_sysroot_crate = src_dir.join("sysroot").exists();
+        let have_builtins_crate = src_dir.join("compiler-builtins").exists();
         let crates = match &self.config {
-            // As long as the sysroot has a ptch for compiler_builtins, we need to include it in the
+            // As long as the sysroot has a patch for compiler_builtins, we need to include it in the
             // NoStd variant explicitly.
-            SysrootConfig::NoStd => format!(
+            SysrootConfig::NoStd if have_builtins_crate => format!(
                 r#"
                 [dependencies.core]
                 path = {src_dir_core:?}
@@ -316,6 +317,20 @@ impl<'a> SysrootBuilder<'a> {
                 src_dir_core = src_dir.join("core"),
                 src_dir_alloc = src_dir.join("alloc"),
                 src_dir_builtins = src_dir.join("compiler-builtins").join("compiler-builtins"),
+            ),
+            // Fallback for old rust without in-tree `compiler-builtins`.
+            SysrootConfig::NoStd => format!(
+                r#"
+                [dependencies.core]
+                path = {src_dir_core:?}
+                [dependencies.alloc]
+                path = {src_dir_alloc:?}
+                [dependencies.compiler_builtins]
+                version = "*"
+                features = ["rustc-dep-of-std", "mem"]
+                "#,
+                src_dir_core = src_dir.join("core"),
+                src_dir_alloc = src_dir.join("alloc"),
             ),
             SysrootConfig::WithStd { std_features } if have_sysroot_crate => format!(
                 r#"
