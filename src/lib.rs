@@ -413,7 +413,7 @@ impl<'a> SysrootBuilder<'a> {
         // A bit of preparation.
         if !src_dir.join("std").join("Cargo.toml").exists() {
             bail!(
-                "{:?} does not seem to be a rust library source folder: `src/Cargo.toml` not found",
+                "{:?} does not seem to be a rust library source folder: `std/Cargo.toml` not found",
                 src_dir
             );
         }
