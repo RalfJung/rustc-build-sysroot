@@ -91,10 +91,28 @@ fn no_std() {
 
 #[test]
 fn json_target() {
-    let target = r#"{
+    // The syntax for `target-pointer-width` changed from `"64"`` to `64`. Figure out which one
+    // this rustc needs...
+    let sample_json = Command::new("rustc")
+        .args([
+            "-Zunstable-options",
+            "--print=target-spec-json",
+            "--target=x86_64-unknown-none",
+        ])
+        .output()
+        .unwrap()
+        .stdout;
+    let sample_json = String::from_utf8(sample_json).unwrap();
+    let ptr_width = if sample_json.contains(r#""target-pointer-width": 64"#) {
+        "64"
+    } else {
+        r#""64""#
+    };
+    let target = format!(
+        r#"{{
         "llvm-target": "x86_64-unknown-none",
         "target-endian": "little",
-        "target-pointer-width": "64",
+        "target-pointer-width": {ptr_width},
         "target-c-int-width": 32,
         "data-layout": "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
         "arch": "x86_64",
@@ -115,7 +133,8 @@ fn json_target() {
         "has-rpath": false,
         "no-default-libraries": true,
         "position-independent-executables": false
-    }"#;
+    }}"#
+    );
 
     let sysroot_dir = tempdir().unwrap();
     let target_file = sysroot_dir.path().join("mytarget.json");
