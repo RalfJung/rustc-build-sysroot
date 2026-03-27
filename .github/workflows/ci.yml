@@ -51,6 +51,18 @@ jobs:
       - name: Run tests
         run: cargo test --locked --target ${{ matrix.target }}
 
+  build-dir-new-layout:
+    name: Test Suite (build-dir-new-layout)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: rust-src
+      - name: Run tests
+        run: CARGO_UNSTABLE_BUILD_DIR_NEW_LAYOUT=true cargo test --locked
+
   check:
     name: Checks
     runs-on: ubuntu-latest
