@@ -1,3 +1,5 @@
+#![allow(clippy::useless_format)]
+
 use std::fs;
 use std::process::{self, Command};
 
@@ -17,9 +19,10 @@ fn run(cmd: &mut Command) {
 
 fn build_sysroot(b: SysrootBuilder) {
     let src_dir = rustc_sysroot_src(Command::new("rustc")).unwrap();
-    b.cargo(Command::new("cargo"))
-        .build_from_source(&src_dir)
-        .unwrap();
+    let mut cargo = Command::new("cargo");
+    // Cargo complains about unknown `-Z` flags but not about unknown env vars. :)
+    cargo.env("CARGO_UNSTABLE_JSON_TARGET_SPEC", "true");
+    b.cargo(cargo).build_from_source(&src_dir).unwrap();
 }
 
 fn test_sysroot_build(target: &str, mode: BuildMode, rustc_version: &VersionMeta) {
@@ -91,28 +94,11 @@ fn no_std() {
 
 #[test]
 fn json_target() {
-    // The syntax for `target-pointer-width` changed from `"64"`` to `64`. Figure out which one
-    // this rustc needs...
-    let sample_json = Command::new("rustc")
-        .args([
-            "-Zunstable-options",
-            "--print=target-spec-json",
-            "--target=x86_64-unknown-none",
-        ])
-        .output()
-        .unwrap()
-        .stdout;
-    let sample_json = String::from_utf8(sample_json).unwrap();
-    let ptr_width = if sample_json.contains(r#""target-pointer-width": 64"#) {
-        "64"
-    } else {
-        r#""64""#
-    };
     let target = format!(
         r#"{{
         "llvm-target": "x86_64-unknown-none",
         "target-endian": "little",
-        "target-pointer-width": {ptr_width},
+        "target-pointer-width": 64,
         "target-c-int-width": 32,
         "data-layout": "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128",
         "arch": "x86_64",
