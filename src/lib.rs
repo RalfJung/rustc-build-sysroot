@@ -531,17 +531,17 @@ impl<'a> SysrootBuilder<'a> {
         fs::create_dir(&staging_lib_dir).context("failed to create staging/lib dir")?;
         let out_dir = build_target_dir
             .join(&target_name)
-            .join(DEFAULT_SYSROOT_PROFILE)
-            .join("deps");
-        for entry in fs::read_dir(&out_dir).context("failed to read cargo out dir")? {
-            let entry = entry.context("failed to read cargo out dir entry")?;
-            assert!(
-                entry.file_type().unwrap().is_file(),
-                "cargo out dir must not contain directories"
-            );
-            let entry = entry.path();
-            fs::copy(&entry, staging_lib_dir.join(entry.file_name().unwrap()))
-                .context("failed to copy cargo out file")?;
+            .join(DEFAULT_SYSROOT_PROFILE);
+        if out_dir.join("deps").exists() {
+            // Old build dir layout: $out/deps
+            copy_files(&out_dir.join("deps"), &staging_lib_dir)
+                .context("failed to copy cargo out dir (old layout)")?;
+        } else {
+            // New build dir layout: $out/build/*/*/out.
+            for_each_dir(&out_dir.join("build"), |dir| {
+                for_each_dir(dir, |dir| copy_files(&dir.join("out"), &staging_lib_dir))
+            })
+            .context("failed to copy cargo out dir (new layout)")?;
         }
 
         // Write the hash file (into the staging dir).
@@ -562,6 +562,31 @@ impl<'a> SysrootBuilder<'a> {
 
         Ok(SysrootStatus::SysrootBuilt)
     }
+}
+
+/// Coopy all files in `from` to `to`.
+fn copy_files(from: &Path, to: &Path) -> Result<()> {
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        assert!(
+            entry.file_type()?.is_file(),
+            "cargo out dir must not contain directories"
+        );
+        fs::copy(&entry.path(), to.join(entry.file_name()))?;
+    }
+    Ok(())
+}
+
+/// Invoke the closure for each directory inside `path`.
+fn for_each_dir(path: &Path, f: impl Fn(&Path) -> Result<()>) -> Result<()> {
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        f(&entry.path())?;
+    }
+    Ok(())
 }
 
 /// Collect the patches from the sysroot's workspace `Cargo.toml`.
