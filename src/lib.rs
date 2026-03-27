@@ -564,7 +564,7 @@ impl<'a> SysrootBuilder<'a> {
     }
 }
 
-/// Coopy all files in `from` to `to`.
+/// Copy all files in `from` to `to`.
 fn copy_files(from: &Path, to: &Path) -> Result<()> {
     for entry in fs::read_dir(from)? {
         let entry = entry?;
