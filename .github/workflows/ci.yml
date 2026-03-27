@@ -18,7 +18,7 @@ jobs:
         rust:
           - nightly
           # Check a ~3 months old nightly as "oldest supported version"
-          - nightly-2025-05-01
+          - nightly-2026-01-01
         # We want to run all of the above on Linux, macOS, windows-msvc, windows-gnu.
         # The semantics of combining `include` with other things in GHA are very strange
         # so this seems like the best way of doing that.
@@ -50,6 +50,18 @@ jobs:
           components: rust-src
       - name: Run tests
         run: cargo test --locked --target ${{ matrix.target }}
+
+  build-dir-new-layout:
+    name: Test Suite (build-dir-new-layout)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          components: rust-src
+      - name: Run tests
+        run: CARGO_UNSTABLE_BUILD_DIR_NEW_LAYOUT=true cargo test --locked
 
   check:
     name: Checks
