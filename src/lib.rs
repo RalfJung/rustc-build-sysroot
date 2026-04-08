@@ -165,6 +165,7 @@ pub struct SysrootBuilder<'a> {
     cargo: Option<Command>,
     rustc_version: Option<rustc_version::VersionMeta>,
     when_build_required: Option<Box<dyn FnOnce() + 'a>>,
+    keep_build_dir: bool,
 }
 
 /// Whether a successful [`SysrootBuilder::build_from_source`] call found a cached sysroot or
@@ -201,6 +202,7 @@ impl<'a> SysrootBuilder<'a> {
             cargo: None,
             rustc_version: None,
             when_build_required: None,
+            keep_build_dir: false,
         }
     }
 
@@ -247,6 +249,12 @@ impl<'a> SysrootBuilder<'a> {
     /// will be compiled.
     pub fn when_build_required(mut self, when_build_required: impl FnOnce() + 'a) -> Self {
         self.when_build_required = Some(Box::new(when_build_required));
+        self
+    }
+
+    /// Sets whether the temporary build directory should be kept around for debugging.
+    pub fn keep_build_dir(mut self, keep: bool) -> Self {
+        self.keep_build_dir = keep;
         self
     }
 
@@ -436,7 +444,10 @@ impl<'a> SysrootBuilder<'a> {
         let _ = fs::rename(&sysroot_target_dir, &unstaging_dir); // rename may fail if the dir does not exist yet
 
         // Prepare a workspace for cargo
-        let build_dir = TempDir::new().context("failed to create tempdir")?;
+        let build_dir = tempfile::Builder::new()
+            .disable_cleanup(!self.keep_build_dir)
+            .tempdir()
+            .context("failed to create tempdir")?;
         // Cargo.lock
         let lock_file = build_dir.path().join("Cargo.lock");
         let lock_file_src = {
