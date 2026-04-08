@@ -507,9 +507,9 @@ impl<'a> SysrootBuilder<'a> {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             if stderr.is_empty() {
-                bail!("sysroot build failed");
+                bail!("sysroot build failed\ncommand: {cmd:?}");
             } else {
-                bail!("sysroot build failed; stderr:\n{}", stderr);
+                bail!("sysroot build failed\ncommand: {cmd:?}\nstderr:\n{stderr}");
             }
         }
 
