@@ -445,7 +445,8 @@ impl<'a> SysrootBuilder<'a> {
 
         // Prepare a workspace for cargo
         let build_dir = tempfile::Builder::new()
-            .disable_cleanup(!self.keep_build_dir)
+            .prefix("rustc-build-sysroot-")
+            .disable_cleanup(self.keep_build_dir)
             .tempdir()
             .context("failed to create tempdir")?;
         // Cargo.lock
