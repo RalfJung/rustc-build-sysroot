@@ -3,6 +3,7 @@
 use std::fs;
 use std::process::{self, Command};
 
+use anyhow::Result;
 use rustc_version::VersionMeta;
 use tempfile::tempdir;
 
@@ -17,12 +18,13 @@ fn run(cmd: &mut Command) {
         .success());
 }
 
-fn build_sysroot(b: SysrootBuilder) {
-    let src_dir = rustc_sysroot_src(Command::new("rustc")).unwrap();
+fn build_sysroot(b: SysrootBuilder) -> Result<()> {
+    let src_dir = rustc_sysroot_src(Command::new("rustc"))?;
     let mut cargo = Command::new("cargo");
     // Cargo complains about unknown `-Z` flags but not about unknown env vars. :)
     cargo.env("CARGO_UNSTABLE_JSON_TARGET_SPEC", "true");
-    b.cargo(cargo).build_from_source(&src_dir).unwrap();
+    b.cargo(cargo).build_from_source(&src_dir)?;
+    Ok(())
 }
 
 fn test_sysroot_build(target: &str, mode: BuildMode, rustc_version: &VersionMeta) {
@@ -31,7 +33,8 @@ fn test_sysroot_build(target: &str, mode: BuildMode, rustc_version: &VersionMeta
         SysrootBuilder::new(sysroot_dir.path(), target)
             .build_mode(mode)
             .rustc_version(rustc_version.clone()),
-    );
+    )
+    .unwrap_or_else(|err| panic!("failed to {mode:?} sysroot for `{target}`:\n{err}"));
 
     let crate_name = "rustc-build-sysroot-test-crate";
     let crate_dir = tempdir().unwrap();
@@ -60,12 +63,13 @@ fn test_sysroot_build(target: &str, mode: BuildMode, rustc_version: &VersionMeta
 }
 
 #[test]
-fn host() {
+fn host() -> Result<()> {
     let rustc_version = VersionMeta::for_command(Command::new("rustc")).unwrap();
 
     for mode in [BuildMode::Build, BuildMode::Check] {
         test_sysroot_build(&rustc_version.host, mode, &rustc_version);
     }
+    Ok(())
 }
 
 #[test]
@@ -89,7 +93,8 @@ fn no_std() {
         SysrootBuilder::new(sysroot_dir.path(), "thumbv7em-none-eabihf")
             .build_mode(BuildMode::Check)
             .sysroot_config(SysrootConfig::NoStd),
-    );
+    )
+    .unwrap_or_else(|err| panic!("failed to build no_std sysroot:\n{err}"));
 }
 
 #[test]
@@ -130,5 +135,6 @@ fn json_target() {
         SysrootBuilder::new(sysroot_dir.path(), &target_file)
             .build_mode(BuildMode::Check)
             .sysroot_config(SysrootConfig::NoStd),
-    );
+    )
+    .unwrap_or_else(|err| panic!("failed to build JSON target sysroot:\n{err}"));
 }
