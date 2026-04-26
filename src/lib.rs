@@ -563,9 +563,12 @@ impl<'a> SysrootBuilder<'a> {
 fn copy_files(from: &Path, to: &Path) -> Result<()> {
     for entry in fs::read_dir(from)? {
         let entry = entry?;
+        let file_type = entry.file_type()?;
         assert!(
-            entry.file_type()?.is_file(),
-            "cargo out dir must not contain directories"
+            file_type.is_file(),
+            "cargo out dir must only contain regular files, found {:?} which has file type {:?}",
+            entry.path(),
+            file_type
         );
         fs::copy(&entry.path(), to.join(entry.file_name()))?;
     }
