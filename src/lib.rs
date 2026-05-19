@@ -163,6 +163,7 @@ pub struct SysrootBuilder<'a> {
     mode: BuildMode,
     rustflags: Vec<OsString>,
     cargo: Option<Command>,
+    cargo_config: Vec<PathBuf>,
     rustc_version: Option<rustc_version::VersionMeta>,
     when_build_required: Option<Box<dyn FnOnce() + 'a>>,
     keep_build_dir: bool,
@@ -200,6 +201,7 @@ impl<'a> SysrootBuilder<'a> {
             mode: BuildMode::Build,
             rustflags: default_flags.iter().map(Into::into).collect(),
             cargo: None,
+            cargo_config: vec![],
             rustc_version: None,
             when_build_required: None,
             keep_build_dir: false,
@@ -236,6 +238,12 @@ impl<'a> SysrootBuilder<'a> {
     /// then that needs to be set explicitly.
     pub fn cargo(mut self, cargo: Command) -> Self {
         self.cargo = Some(cargo);
+        self
+    }
+
+    /// Sets the cargo config file to use.
+    pub fn cargo_config(mut self, cargo_config: impl Into<PathBuf>) -> Self {
+        self.cargo_config.push(cargo_config.into());
         self
     }
 
@@ -292,6 +300,7 @@ impl<'a> SysrootBuilder<'a> {
         src_dir.hash(&mut hasher);
         hash_recursive(src_dir, &mut hasher)?;
         self.config.hash(&mut hasher);
+        self.cargo_config.hash(&mut hasher);
         self.mode.hash(&mut hasher);
         self.rustflags.hash(&mut hasher);
         rustc_version.hash(&mut hasher);
@@ -397,6 +406,37 @@ impl<'a> SysrootBuilder<'a> {
         toml::to_string(&table).expect("failed to serialize to toml")
     }
 
+    /// Prepare the cargo Command that will be executed for the sysroot build.
+    fn prepare_cargo_command(
+        &self,
+        cargo: Command,
+        manifest_file: &Path,
+        build_target_dir: &Path,
+    ) -> Command {
+        let mut cmd = cargo;
+        cmd.arg(self.mode.as_str());
+        cmd.arg("--profile");
+        cmd.arg(DEFAULT_SYSROOT_PROFILE);
+        cmd.arg("--manifest-path");
+        cmd.arg(manifest_file);
+        for cargo_config in &self.cargo_config {
+            cmd.arg("--config");
+            cmd.arg(cargo_config);
+        }
+        cmd.arg("--target");
+        cmd.arg(&self.target);
+        // Set rustflags.
+        cmd.env("CARGO_ENCODED_RUSTFLAGS", encode_rustflags(&self.rustflags));
+        // Make sure the results end up where we expect them.
+        cmd.env("CARGO_TARGET_DIR", build_target_dir);
+        cmd.env("CARGO_BUILD_BUILD_DIR", build_target_dir);
+        // To avoid metadata conflicts, we need to inject some custom data into the crate hash.
+        // bootstrap does the same at
+        // <https://github.com/rust-lang/rust/blob/c8e12cc8bf0de646234524924f39c85d9f3c7c37/src/bootstrap/builder.rs#L1613>.
+        cmd.env("__CARGO_DEFAULT_LIB_METADATA", "rustc-build-sysroot");
+        cmd
+    }
+
     /// Build the `self` sysroot from the given sources.
     ///
     /// `src_dir` must be the `library` source folder, i.e., the one that contains `std/Cargo.toml`.
@@ -481,25 +521,8 @@ impl<'a> SysrootBuilder<'a> {
         fs::write(&lib_file, lib.as_bytes()).context("failed to write lib file")?;
 
         // Run cargo.
-        let mut cmd = cargo;
-        cmd.arg(self.mode.as_str());
-        cmd.arg("--profile");
-        cmd.arg(DEFAULT_SYSROOT_PROFILE);
-        cmd.arg("--manifest-path");
-        cmd.arg(&manifest_file);
-        cmd.arg("--target");
-        cmd.arg(&self.target);
-        // Set rustflags.
-        cmd.env("CARGO_ENCODED_RUSTFLAGS", encode_rustflags(&self.rustflags));
-        // Make sure the results end up where we expect them.
-        // Cargo provides multiple ways to adjust this and we need to overwrite all of them.
         let build_target_dir = build_dir.path().join("target");
-        cmd.env("CARGO_TARGET_DIR", &build_target_dir);
-        cmd.env("CARGO_BUILD_BUILD_DIR", &build_target_dir);
-        // To avoid metadata conflicts, we need to inject some custom data into the crate hash.
-        // bootstrap does the same at
-        // <https://github.com/rust-lang/rust/blob/c8e12cc8bf0de646234524924f39c85d9f3c7c37/src/bootstrap/builder.rs#L1613>.
-        cmd.env("__CARGO_DEFAULT_LIB_METADATA", "rustc-build-sysroot");
+        let mut cmd = self.prepare_cargo_command(cargo, &manifest_file, &build_target_dir);
 
         let output = cmd
             .output()
@@ -687,6 +710,39 @@ mod tests {
             &manifest,
             "rustc-std-workspace-std",
             Some(&src_dir.path().join("std")),
+        );
+    }
+
+    #[test]
+    fn test_cargo_config() {
+        let sysroot = Path::new("sysroot");
+        let builder = SysrootBuilder::new(sysroot, "sometarget")
+            .cargo_config("http.proxy=\"http://example.com\"")
+            .cargo_config("my_config.toml");
+
+        let cargo = Command::new("cargo");
+        let manifest = Path::new("Cargo.toml");
+        let target_dir = Path::new("target");
+
+        let cmd = builder.prepare_cargo_command(cargo, manifest, target_dir);
+
+        assert_eq!(
+            cmd.get_args()
+                .map(|s| s.to_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec![
+                "build",
+                "--profile",
+                "custom_sysroot",
+                "--manifest-path",
+                "Cargo.toml",
+                "--config",
+                "http.proxy=\"http://example.com\"",
+                "--config",
+                "my_config.toml",
+                "--target",
+                "sometarget"
+            ]
         );
     }
 }
