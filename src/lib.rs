@@ -388,6 +388,10 @@ impl<'a> SysrootBuilder<'a> {
             inherits = "release"
             panic = 'unwind'
 
+            [lints.cargo]
+            # The dependencies are not actually used.
+            unused_dependencies = "allow"
+
             {crates}
             "#
         ))
